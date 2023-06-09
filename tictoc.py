@@ -2,7 +2,12 @@ import os
 import time
 from collections import defaultdict
 from datetime import datetime
+import matplotlib
+if False:
+    matplotlib.use('Gtk3Agg') # or mpl.use('Gtk3Cairo')
+    matplotlib.get_backend() 
 import matplotlib.pyplot as plt
+
 import numpy as np
 
 try:
@@ -37,6 +42,24 @@ class timer:
 
     def pttoc(self, message=None):
         print(message, self.ttoc())
+
+class count_down_clock(timer):
+    def __init__(self) -> None:
+        super().__init__()
+        self.count_down_time = 10
+
+    def set_count_down(self, count_down_time):
+        self.tic()
+        self.count_down_time = count_down_time
+
+    def reset(self):
+        self.tic()
+
+    def time_left(self):
+        return self.count_down_time - self.toc()
+    
+    def completed(self):
+        return self.count_down_time < self.toc()
 
 
 class timed_counter:
