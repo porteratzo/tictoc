@@ -44,9 +44,9 @@ class timer:
         print(message, self.ttoc())
 
 class count_down_clock(timer):
-    def __init__(self) -> None:
+    def __init__(self, count_down_time=10) -> None:
         super().__init__()
-        self.count_down_time = 10
+        self.count_down_time = count_down_time
 
     def set_count_down(self, count_down_time):
         self.tic()
@@ -236,3 +236,30 @@ bench_dict = g_benchmarker()
 g_timer1 = timer()
 g_timer2 = timer()
 g_timer3 = timer()
+
+class start_bench:
+    def __init__(self, dataloader, name='epoch') -> None:
+        self.dataloader = dataloader
+        self.name = name
+
+    def __len__(self):
+        return len(self.dataloader)
+
+    def __iter__(self):
+        self.iter_obj = iter(self.dataloader)
+        self.n = 0
+        return self
+
+    def __next__(self):
+        if self.n < len(self.dataloader):
+            bench_dict[self.name].gstep()
+            self.n += 1
+            while True:
+                try:
+                    result = next(self.iter_obj)
+                    break
+                except:
+                    raise
+            return result
+        else:
+            raise StopIteration
