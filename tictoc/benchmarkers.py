@@ -116,12 +116,24 @@ class benchmarker:
             plt.title(os.path.basename(self.file) + "_bar")
             plt.tight_layout()
             rescale = lambda y: (y - np.min(y)) / (np.max(y) - np.min(y))
-            plt.bar(
+            bar_container = plt.bar(
                 np.arange(len(df.values())),
                 [i for i in df.values()],
                 label=list(df.keys()),
                 color=mymap(rescale(list(df.values()))),
             )
+            y_offset = max(df.values()) * 0.04
+            for idx, bar in enumerate(bar_container):
+                # Get height and label for the bar
+                height = bar.get_height()
+                label = list(df.keys())[idx]
+                # Annotate the bar with its label and value
+                plt.text(
+                    bar.get_x() + bar.get_width() / 2, height + y_offset,
+                    f'{round(height,3)}',
+                    ha='center', va='top'
+                )
+            plt.xticks(np.arange(len(df)), list(df.keys()))
             plt.legend(list(df.keys()))
             plt.savefig(self.file + "_bar.png", dpi=200)
 
