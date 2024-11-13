@@ -181,6 +181,7 @@ class g_benchmarker:
         self.enable = True
         today = datetime.now()
         self.time_string = today.strftime("%d:%m:%Y:%H:%M")
+        self.default_path = f"performance_{self.time_string}"
 
     def enable(self):
         """
@@ -214,7 +215,7 @@ class g_benchmarker:
         get_bench: benchmarker or None = self.benchmarkers.get(item, None)
         if get_bench is None:
             self.benchmarkers[item] = benchmarker(
-                f"performance_{self.time_string}/{item}"
+                f"{self.default_path}/{item}"
             )
         return self.benchmarkers[item]
 
