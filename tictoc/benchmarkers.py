@@ -99,9 +99,7 @@ class benchmarker:
             for n, i in enumerate(self.global_dict):
                 for key in i.keys():
                     self.series[key][n] = i[key]
-            means = {
-                k: np.mean(list(self.series[k].values())) for k, v in self.series.items()
-            }
+            means = {k: np.mean(list(self.series[k].values())) for k, v in self.series.items()}
 
             df = means
             os.makedirs(self.folder, exist_ok=True)
@@ -129,9 +127,11 @@ class benchmarker:
                 label = list(df.keys())[idx]
                 # Annotate the bar with its label and value
                 plt.text(
-                    bar.get_x() + bar.get_width() / 2, height + y_offset,
-                    f'{round(height,3)}',
-                    ha='center', va='top'
+                    bar.get_x() + bar.get_width() / 2,
+                    height + y_offset,
+                    f"{round(height,3)}",
+                    ha="center",
+                    va="top",
                 )
             plt.xticks(np.arange(len(df)), list(df.keys()))
             plt.legend(list(df.keys()))
@@ -214,9 +214,7 @@ class g_benchmarker:
         """
         get_bench: benchmarker or None = self.benchmarkers.get(item, None)
         if get_bench is None:
-            self.benchmarkers[item] = benchmarker(
-                f"{self.default_path}/{item}"
-            )
+            self.benchmarkers[item] = benchmarker(f"{self.default_path}/{item}")
         return self.benchmarkers[item]
 
     def save(self):

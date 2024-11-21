@@ -17,7 +17,7 @@ class timer:
     """
     A simple timer class offering functionalities like starting, stopping, and retrieving elapsed time.
     """
-        
+
     def __init__(self) -> None:
         """
         Initializes the timer with the starting time set to the current time.
@@ -123,7 +123,7 @@ class timed_counter:
     """
     A class that combines a timer and a counter, tracking both elapsed time and the number of counts within that time, and can return frequency of counts
     """
-        
+
     def __init__(self, enabled: bool = True) -> None:
         """
         Initializes the timed counter.
