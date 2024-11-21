@@ -1,6 +1,5 @@
 import os
 from collections import defaultdict
-from datetime import datetime
 from typing import DefaultDict, List
 import matplotlib.pyplot as plt
 
