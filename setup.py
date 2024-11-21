@@ -11,10 +11,9 @@ setup(
     license='MIT License',
     packages=setuptools.find_packages(),
     install_requires=['matplotlib',
-                      'numpy', 
+                      'numpy',
                       ],
     extras_require={
-        "csv": ["pandas"],
     },
     classifiers=[
         'Operating System :: POSIX :: Linux', 
