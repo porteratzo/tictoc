@@ -1,11 +1,12 @@
 import os
 from collections import defaultdict
 from datetime import datetime
+from typing import DefaultDict, List
 import matplotlib.pyplot as plt
 
 import numpy as np
 import csv
-from .basic import timer
+from .basic import timer, get_timestamp
 
 
 class benchmarker:
@@ -27,10 +28,10 @@ class benchmarker:
         self.enable = True
         self.step_timer = timer()
         self.global_timer = timer()
-        self.global_dict = []
-        self.step_dict = defaultdict(int)
+        self.global_dict_list: List[DefaultDict[str, int]] = []
+        self.step_dict: DefaultDict[str, int] = defaultdict(int)
         self.file = file
-        self.folder = "/".join(file.split("/")[:-1])
+        self.folder = os.path.join(file.split("/")[:-1])
         self.started = False
 
     def enable(self):
@@ -73,7 +74,7 @@ class benchmarker:
             if self.started:
                 if "global" not in self.step_dict.keys():
                     self.step_dict["global"] = self.global_timer.ttoc()
-                self.global_dict.append(self.step_dict)
+                self.global_dict_list.append(self.step_dict)
                 self.started = False
 
     def step(self, topic=""):
@@ -86,84 +87,85 @@ class benchmarker:
         if self.enable:
             self.step_dict[topic] += self.step_timer.ttoc()
 
-    def data_summary(self):
+    def make_bars(self, rescale, df_means):
+        plt.figure(figsize=(18, 6))
+        mymap = plt.get_cmap("jet")
+        plt.title(os.path.basename(self.file) + "_bar")
+        plt.tight_layout()
+        bar_container = plt.bar(
+            np.arange(len(df_means.values())),
+            [i for i in df_means.values()],
+            label=list(df_means.keys()),
+            color=mymap(rescale(list(df_means.values()))),
+        )
+        y_offset = max(df_means.values()) * 0.04
+        for bar in bar_container:
+            # Get height and label for the bar
+            height = bar.get_height()
+            # Annotate the bar with its label and value
+            plt.text(
+                bar.get_x() + bar.get_width() / 2,
+                height + y_offset,
+                f"{round(height,3)}",
+                ha="center",
+                va="top",
+            )
+        plt.xticks(np.arange(len(df_means)), list(df_means.keys()))
+        plt.legend(list(df_means.keys()))
+        plt.savefig(self.file + "_bar.png", dpi=200)
+
+    def write_summary(self, df_means):
+        with open(self.file + "_summary.csv", "w", newline="") as csvfile:
+            writer = csv.writer(csvfile)
+            # Write the data to the CSV file
+            for row in df_means.items():
+                writer.writerow(row)
+
+    def plot_data(self):
+        series = self.series
+        plt.figure(figsize=(18, 6))
+        plt.title(os.path.basename(self.file))
+        for keys in series.keys():
+            X = np.array(list(series[keys].keys()))
+            Y = np.array(list(series[keys].values()))
+
+            Q1 = np.percentile(Y, 25, interpolation="midpoint")
+            Q3 = np.percentile(Y, 75, interpolation="midpoint")
+            IQR = Q3 - Q1
+            bool_idx = (Y < (IQR + 1.5 * Q3)) & (Y > (IQR - 1.5 * Q1))
+            X = X[bool_idx]
+            Y = Y[bool_idx]
+
+            plt.plot(X, Y)
+        plt.tight_layout()
+        plt.legend(list(series.keys()))
+        plt.savefig(self.file + ".png", dpi=200)
+
+    def save_data(self):
         """
+        Generates a plot of benchmark results, showing time series data for each step.
         Generates a summary of benchmark results, including mean time for each step.
 
         Saves the summary data to a CSV file and creates a bar chart visualization.
-        """
-        if self.enable:
-            self.gstop()
 
-            self.series = defaultdict(dict)
-            for n, i in enumerate(self.global_dict):
-                for key in i.keys():
-                    self.series[key][n] = i[key]
-            means = {k: np.mean(list(self.series[k].values())) for k, v in self.series.items()}
-
-            df = means
-            os.makedirs(self.folder, exist_ok=True)
-            with open(self.file + "_summary.csv", "w", newline="") as csvfile:
-                writer = csv.writer(csvfile)
-                # Write the data to the CSV file
-                for row in df.items():
-                    writer.writerow(row)
-
-            plt.figure(figsize=(18, 6))
-            mymap = plt.get_cmap("jet")
-            plt.title(os.path.basename(self.file) + "_bar")
-            plt.tight_layout()
-            rescale = lambda y: (y - np.min(y)) / (np.max(y) - np.min(y))
-            bar_container = plt.bar(
-                np.arange(len(df.values())),
-                [i for i in df.values()],
-                label=list(df.keys()),
-                color=mymap(rescale(list(df.values()))),
-            )
-            y_offset = max(df.values()) * 0.04
-            for idx, bar in enumerate(bar_container):
-                # Get height and label for the bar
-                height = bar.get_height()
-                label = list(df.keys())[idx]
-                # Annotate the bar with its label and value
-                plt.text(
-                    bar.get_x() + bar.get_width() / 2,
-                    height + y_offset,
-                    f"{round(height,3)}",
-                    ha="center",
-                    va="top",
-                )
-            plt.xticks(np.arange(len(df)), list(df.keys()))
-            plt.legend(list(df.keys()))
-            plt.savefig(self.file + "_bar.png", dpi=200)
-
-    def plot_data(self):
-        """
-        Generates a plot of benchmark results, showing time series data for each step.
-
-        Optionally removes outliers using Interquartile Range (IQR).
+        Removes outliers using Interquartile Range (IQR).
         Saves the plot as a PNG image.
         """
         if self.enable:
-            self.data_summary()
-            series = self.series
-            plt.figure(figsize=(18, 6))
-            plt.title(os.path.basename(self.file))
-            for keys in series.keys():
-                X = np.array(list(series[keys].keys()))
-                Y = np.array(list(series[keys].values()))
 
-                Q1 = np.percentile(Y, 25, interpolation="midpoint")
-                Q3 = np.percentile(Y, 75, interpolation="midpoint")
-                IQR = Q3 - Q1
-                bool_idx = (Y < (IQR + 1.5 * Q3)) & (Y > (IQR - 1.5 * Q1))
-                X = X[bool_idx]
-                Y = Y[bool_idx]
+            def rescale(y):
+                return (y - np.min(y)) / (np.max(y) - np.min(y))
 
-                plt.plot(X, Y)
-            plt.tight_layout()
-            plt.legend(list(series.keys()))
-            plt.savefig(self.file + ".png", dpi=200)
+            self.series = defaultdict(dict)
+            for n, i in enumerate(self.global_dict_list):
+                for key in i.keys():
+                    self.series[key][n] = i[key]
+            df_means = {k: np.mean(list(self.series[k].values())) for k in self.series.values()}
+
+            os.makedirs(self.folder, exist_ok=True)
+            self.write_summary(df_means)
+            self.make_bars(rescale, df_means)
+            self.plot_data()
 
 
 class g_benchmarker:
@@ -177,11 +179,14 @@ class g_benchmarker:
     """
 
     def __init__(self) -> None:
-        self.benchmarkers = {}
+        self.benchmarkers: dict[str:benchmarker] = {}
         self.enable = True
-        today = datetime.now()
-        self.time_string = today.strftime("%d:%m:%Y:%H:%M")
+        self.time_string = get_timestamp()
         self.default_path = f"performance_{self.time_string}"
+
+    def set_default_path(self, path):
+        self.time_string = get_timestamp()
+        self.default_path = os.path.join(path, f"performance_{self.time_string}")
 
     def enable(self):
         """
@@ -227,7 +232,12 @@ class g_benchmarker:
 
 
 class start_bench:
-    def __init__(self, dataloader, bench_handle, name="epoch") -> None:
+    """
+    start a g_benchmarker at the start of an iterator like
+    for i in start_bench(dataloader):
+    """
+
+    def __init__(self, dataloader, bench_handle: g_benchmarker, name: str = "epoch") -> None:
         self.dataloader = dataloader
         self.name = name
         self.bench_handle = bench_handle
@@ -245,11 +255,8 @@ class start_bench:
             self.bench_handle[self.name].gstep()
             self.n += 1
             while True:
-                try:
-                    result = next(self.iter_obj)
-                    break
-                except:
-                    raise
+                result = next(self.iter_obj)
+                break
             return result
         else:
             raise StopIteration

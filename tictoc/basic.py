@@ -10,7 +10,7 @@ def get_timestamp() -> str:
         str: The current date and time formatted as "%d-%m-%y_%X"
     """
     current_datetime = datetime.now()
-    return current_datetime.strftime("%d-%m-%y_%X").replace(":", "-")
+    return current_datetime.strftime("%H:%M-%d:%m:%Y")
 
 
 class timer:
