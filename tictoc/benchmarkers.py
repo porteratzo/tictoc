@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 import numpy as np
 import csv
-from .basic import timer, get_timestamp
+from .basic import Timer, get_timestamp
 
 
 class benchmarker:
@@ -25,8 +25,8 @@ class benchmarker:
 
     def __init__(self, file="performance/base") -> None:
         self.enable = True
-        self.step_timer = timer()
-        self.global_timer = timer()
+        self.step_timer = Timer()
+        self.global_timer = Timer()
         self.global_dict_list: List[DefaultDict[str, int]] = []
         self.step_dict: DefaultDict[str, int] = defaultdict(int)
         self.file = file

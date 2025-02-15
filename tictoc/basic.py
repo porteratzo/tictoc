@@ -13,7 +13,7 @@ def get_timestamp() -> str:
     return current_datetime.strftime("%H:%M-%d:%m:%Y")
 
 
-class timer:
+class Timer:
     """
     A simple timer class offering functionalities like starting, stopping, and retrieving elapsed time.
     """
@@ -69,7 +69,7 @@ class timer:
         print(message, self.ttoc())
 
 
-class count_down_clock(timer):
+class CountDownClock(Timer):
     """
     Inherits from the `timer` class and adds functionality for a countdown timer.
     """
@@ -119,7 +119,7 @@ class count_down_clock(timer):
         return self.count_down_time < self.toc()
 
 
-class timed_counter:
+class TimedCounter:
     """
     A class that combines a timer and a counter, tracking both elapsed time and the number of counts within that time, and can return frequency of counts
     """
@@ -133,7 +133,7 @@ class timed_counter:
                 If disabled, timer and counter functionality are not available.
         """
         if enabled:
-            self.timer = timer()
+            self.timer = Timer()
             self.counter = 0
             self.stop_time = 0
             self.stop_count = 0
