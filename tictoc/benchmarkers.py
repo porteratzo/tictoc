@@ -30,7 +30,7 @@ class benchmarker:
         self.global_dict_list: List[DefaultDict[str, int]] = []
         self.step_dict: DefaultDict[str, int] = defaultdict(int)
         self.file = file
-        self.folder = os.path.join(file.split("/")[:-1])
+        self.folder = os.path.join(*file.split("/")[:-1])
         self.started = False
 
     def enable(self):
@@ -159,7 +159,7 @@ class benchmarker:
             for n, i in enumerate(self.global_dict_list):
                 for key in i.keys():
                     self.series[key][n] = i[key]
-            df_means = {k: np.mean(list(self.series[k].values())) for k in self.series.values()}
+            df_means = {k: np.mean(list(self.series[k].values())) for k in self.series.keys()}
 
             os.makedirs(self.folder, exist_ok=True)
             self.write_summary(df_means)
