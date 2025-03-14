@@ -1,7 +1,8 @@
 import os
 from collections import defaultdict
-from typing import DefaultDict, List
+from typing import DefaultDict, List, Dict, Optional
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 
 import numpy as np
 import csv
@@ -86,7 +87,11 @@ class benchmarker:
         if self.enable:
             self.step_dict[topic] += self.step_timer.ttoc()
 
-    def make_bars(self, rescale, df_means):
+    def make_bars(self, df_means):
+
+        def rescale(y):
+            return (y - np.min(y)) / (np.max(y) - np.min(y))
+
         plt.figure(figsize=(18, 6))
         mymap = plt.get_cmap("jet")
         plt.title(os.path.basename(self.file) + "_bar")
@@ -124,20 +129,63 @@ class benchmarker:
         series = self.series
         plt.figure(figsize=(18, 6))
         plt.title(os.path.basename(self.file))
-        for keys in series.keys():
-            X = np.array(list(series[keys].keys()))
-            Y = np.array(list(series[keys].values()))
+        max_length = max([max(step_dict.keys()) for step_dict in series.values()])
+        outlier_max = np.percentile(np.asarray(list(series["global"].values())), 75)
+        outlier_max = outlier_max * 4
+        for n, step_name in enumerate(series.keys()):
+            X = np.arange(max_length + 1)
+            Y = np.zeros(max_length + 1)
 
-            Q1 = np.percentile(Y, 25, interpolation="midpoint")
-            Q3 = np.percentile(Y, 75, interpolation="midpoint")
-            IQR = Q3 - Q1
-            bool_idx = (Y < (IQR + 1.5 * Q3)) & (Y > (IQR - 1.5 * Q1))
-            X = X[bool_idx]
-            Y = Y[bool_idx]
+            real_values = np.asarray(list(series[step_name].values()))
+            real_steps = list(series[step_name].keys())
+            for step_number, step_time in series[step_name].items():
+                Y[step_number] = step_time
 
-            plt.plot(X, Y)
+            Q3 = np.percentile(real_values, 75, interpolation="midpoint")
+            upper_bound = Y > outlier_max
+
+            Y_no_outliers = Y.copy()
+            Y_no_outliers[upper_bound] = Q3
+
+            (line1,) = plt.plot(X, Y_no_outliers, label=step_name)
+
+            plt.plot(
+                X[upper_bound],
+                Y_no_outliers[upper_bound],
+                color=line1.get_color(),
+                marker=r"$\uparrow$",
+                markersize=10,
+                linestyle="",
+                label="_nolegend_",
+            )
+            for k, (i, j) in enumerate(zip(X[upper_bound], Y_no_outliers[upper_bound])):
+                plt.text(i, j, f"{Y[upper_bound][k]:.3e}", fontsize=9, ha="right")
+
+            no_appear_steps = [i for i in range(max_length) if i not in real_steps]
+            plt.plot(
+                no_appear_steps,
+                np.zeros(len(no_appear_steps)),
+                color=line1.get_color(),
+                marker="o",
+                label="_nolegend_",
+                linestyle="",
+                markersize=(len(series) - n - 1) * 4 + 4,
+            )
         plt.tight_layout()
-        plt.legend(list(series.keys()))
+        plt.legend()
+        custom_legend_elements = [
+            Line2D(
+                [0], [0], marker="x", color="b", markerfacecolor="k", markersize=8, label="Outlier"
+            ),
+            Line2D(
+                [0], [0], marker="o", color="b", markerfacecolor="k", markersize=8, label="No Data"
+            ),
+        ]
+
+        # Add the legend with both plot entries and custom entries
+        plt.legend(handles=plt.gca().get_legend_handles_labels()[0] + custom_legend_elements)
+
+        plt.show()
         plt.savefig(self.file + ".png", dpi=200)
 
     def save_data(self):
@@ -152,18 +200,18 @@ class benchmarker:
         """
         if self.enable:
 
-            def rescale(y):
-                return (y - np.min(y)) / (np.max(y) - np.min(y))
-
             self.series = defaultdict(dict)
-            for n, i in enumerate(self.global_dict_list):
-                for key in i.keys():
-                    self.series[key][n] = i[key]
-            df_means = {k: np.mean(list(self.series[k].values())) for k in self.series.keys()}
+            for step_number, step_dict in enumerate(self.global_dict_list):
+                for step_name in step_dict.keys():
+                    self.series[step_name][step_number] = step_dict[step_name]
+            df_means = {
+                step_name: np.mean(list(self.series[step_name].values()))
+                for step_name in self.series.keys()
+            }
 
             os.makedirs(self.folder, exist_ok=True)
             self.write_summary(df_means)
-            self.make_bars(rescale, df_means)
+            self.make_bars(df_means)
             self.plot_data()
 
 
@@ -178,7 +226,7 @@ class g_benchmarker:
     """
 
     def __init__(self) -> None:
-        self.benchmarkers: dict[str:benchmarker] = {}
+        self.benchmarkers: Dict[str, benchmarker] = {}
         self.enable = True
         self.time_string = get_timestamp()
         self.default_path = f"performance_{self.time_string}"
@@ -216,7 +264,7 @@ class g_benchmarker:
         Returns:
             benchmarker: The requested benchmark instance.
         """
-        get_bench: benchmarker or None = self.benchmarkers.get(item, None)
+        get_bench: Optional[benchmarker] = self.benchmarkers.get(item, None)
         if get_bench is None:
             self.benchmarkers[item] = benchmarker(f"{self.default_path}/{item}")
         return self.benchmarkers[item]
@@ -227,7 +275,7 @@ class g_benchmarker:
         """
         if self.enable:
             for bench in self.benchmarkers.values():
-                bench.plot_data()
+                bench.save_data()
 
 
 class start_bench:

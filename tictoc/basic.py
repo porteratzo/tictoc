@@ -28,7 +28,7 @@ class Timer:
         """
         Resets the timer by setting the starting time.
         """
-        self.clock_time = time.perf_counter()
+        self.clock_time: float = time.perf_counter()
 
     def toc(self) -> float:
         """
