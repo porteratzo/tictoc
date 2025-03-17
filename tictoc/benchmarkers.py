@@ -90,6 +90,8 @@ class benchmarker:
     def make_bars(self, df_means):
 
         def rescale(y):
+            if (np.max(y) - np.min(y)) == 0:
+                return 0
             return (y - np.min(y)) / (np.max(y) - np.min(y))
 
         plt.figure(figsize=(18, 6))
