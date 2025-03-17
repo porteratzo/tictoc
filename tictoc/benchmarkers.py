@@ -9,7 +9,7 @@ import csv
 from .basic import Timer, get_timestamp
 
 
-class benchmarker:
+class Benchmarker:
     """
     A class for benchmarking performance during code execution.
 
@@ -104,6 +104,12 @@ class benchmarker:
             label=list(df_means.keys()),
             color=mymap(rescale(list(df_means.values()))),
         )
+        self.label_bar_heights(df_means, bar_container)
+        plt.xticks(np.arange(len(df_means)), list(df_means.keys()))
+        plt.legend(list(df_means.keys()))
+        plt.savefig(self.file_path + "_bar.png", dpi=200)
+
+    def label_bar_heights(self, df_means, bar_container):
         y_offset = max(df_means.values()) * 0.04
         for bar in bar_container:
             # Get height and label for the bar
@@ -228,7 +234,7 @@ class g_benchmarker:
     """
 
     def __init__(self) -> None:
-        self.benchmarkers: Dict[str, benchmarker] = {}
+        self.benchmarkers: Dict[str:Benchmarker] = {}
         self.enable = True
         self.time_string = get_timestamp()
         self.default_path = f"performance_{self.time_string}"
@@ -253,7 +259,7 @@ class g_benchmarker:
         for bench in self.benchmarkers.values():
             bench.disable()
 
-    def __getitem__(self, item: str) -> benchmarker:
+    def __getitem__(self, item: str) -> Benchmarker:
         """
         Retrieves a specific benchmark instance by name.
 
@@ -280,13 +286,15 @@ class g_benchmarker:
                 bench.save_data()
 
 
-class start_bench:
+class IterBench:
     """
     start a g_benchmarker at the start of an iterator like
     for i in start_bench(dataloader):
     """
 
-    def __init__(self, dataloader, bench_handle: g_benchmarker, name: str = "epoch") -> None:
+    def __init__(
+        self, dataloader, benchmark_halder: GlobalBenchmarker, name: str = "epoch"
+    ) -> None:
         self.dataloader = dataloader
         self.name = name
         self.bench_handle = bench_handle

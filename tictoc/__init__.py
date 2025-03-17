@@ -1,5 +1,6 @@
-from .benchmarkers import g_benchmarker
+from .benchmarkers import GlobalBenchmarker, Benchmarker
 from .basic import Timer
 
-bench_dict = g_benchmarker()
+bench_dict = GlobalBenchmarker()
+benchmarker = Benchmarker('performance_benchmark/default')
 timer = Timer()
