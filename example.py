@@ -6,7 +6,11 @@ def demo_bench_dict_usage():
     import time
 
     bench = bench_dict["test"]
+    bench.enable_memory_tracking()
+    bench.enable_memory_tracking_in_step()
+    my_list = [i for i in range(10)]
     for i in range(8):
+        my_list = my_list * 10
         bench.gstep()
         if i == 0:
             bench.gstop()

@@ -1,6 +1,6 @@
 import os
 from collections import defaultdict
-from typing import DefaultDict, List, Dict, Optional, Union
+from typing import List, Dict, Union
 import matplotlib.pyplot as plt
 from matplotlib.container import BarContainer
 from matplotlib.lines import Line2D
@@ -8,7 +8,10 @@ from matplotlib.lines import Line2D
 import numpy as np
 import csv
 import json
-from .basic import Timer, get_timestamp
+import psutil
+from .basic import Timer
+import gc
+import sys
 
 
 class Benchmarker:
@@ -28,15 +31,47 @@ class Benchmarker:
         started (bool): Flag indicating if a benchmark has been started.
     """
 
-    def __init__(self, file: str = "performance/base") -> None:
+    def __init__(self, file: str = "performance/base", top_n: int = 5) -> None:
         self.enable = True
         self.step_timer = Timer()
         self.global_timer = Timer()
-        self.global_dict_list: List[DefaultDict[str, int]] = []
-        self.step_dict: DefaultDict[str, int] = defaultdict(int)
+
+        self.step_dict_list: List[Dict[str, int]] = []
+        self.step_dict: Dict[str, int] = defaultdict(int)
+        self.memory_usage_list: List[Dict[str, Union[int, str]]] = []
+        self.memory_usage: Dict[str, Union[int, str]] = defaultdict(dict)
+
         self.file = file
         self.folder = os.path.join(*file.split("/")[:-1])
+
         self.started = False
+        self.track_memory_usage = False  # Enable/disable all memory tracking
+        self.track_memory_in_step = False  # Enable/disable memory tracking in the step method
+        self.top_n = top_n  # Number of top memory-consuming objects to track
+
+    def enable_memory_tracking(self) -> None:
+        """
+        Enables all memory usage tracking.
+        """
+        self.track_memory_usage = True
+
+    def disable_memory_tracking(self) -> None:
+        """
+        Disables all memory usage tracking.
+        """
+        self.track_memory_usage = False
+
+    def enable_memory_tracking_in_step(self) -> None:
+        """
+        Enables memory usage tracking specifically for the step method.
+        """
+        self.track_memory_in_step = True
+
+    def disable_memory_tracking_in_step(self) -> None:
+        """
+        Disables memory usage tracking specifically for the step method.
+        """
+        self.track_memory_in_step = False
 
     def enable(self) -> None:
         """
@@ -52,7 +87,8 @@ class Benchmarker:
 
     def start(self) -> None:
         """
-        Starts a new benchmark by resetting the step and global timers and setting the `started` flag to True.
+        Starts a new benchmark by resetting the step and global timers and setting the `started`
+          flag to True.
         """
         if self.enable:
             self.step_timer.tic()
@@ -61,25 +97,61 @@ class Benchmarker:
 
     def gstep(self) -> None:
         """
-        Ends the current step within a benchmark, stores accumulated step time, resets the step timer,
-        and starts a new step.
+        Ends the current step within a benchmark, stores accumulated step time and memory usage,
+        resets the step timer, and starts a new step.
         """
         if self.enable:
             self.gstop()
             self.step_dict = defaultdict(int)
+            if self.track_memory_usage:  # Check if global memory tracking is enabled
+                self.memory_usage = defaultdict(dict)
+                top_memory_objects = self.get_top_memory_objects()
+                self.memory_usage["gstep"] = {
+                    "total memory usage": psutil.Process().memory_info().rss,
+                    "top_memory_objects": top_memory_objects,
+                }
             self.start()
+
+    def get_top_memory_objects(self):
+        """
+        Retrieves the top N memory-consuming objects along with their types and sizes.
+
+        Returns:
+            List[Tuple[str, int]]: A list of tuples containing the type and size of the top objects.
+        """
+        gc.collect()
+        all_objects = gc.get_objects()
+        top_memory_objects = []
+        for obj in all_objects:
+            obj_size = sys.getsizeof(obj)
+            obj_type = str(type(obj))
+            if len(top_memory_objects) < self.top_n:
+                top_memory_objects.append((obj_type, obj_size))
+                top_memory_objects.sort(key=lambda x: x[1], reverse=True)
+            elif obj_size > top_memory_objects[-1][1]:
+                top_memory_objects[-1] = (obj_type, obj_size)
+                top_memory_objects.sort(key=lambda x: x[1], reverse=True)
+        return top_memory_objects
 
     def gstop(self) -> None:
         """
-        Ends the current benchmark, stores accumulated step time for the overall execution,
+        Ends the current benchmark, stores accumulated step time and memory usage for the overall
+         execution,
         and resets the `started` flag.
         """
         if self.enable:
             if self.started:
                 if "global" not in self.step_dict.keys():
                     self.step_dict["global"] = self.global_timer.ttoc()
-                self.global_dict_list.append(self.step_dict)
+                self.step_dict_list.append(self.step_dict)
                 self.started = False
+                if self.track_memory_usage:
+                    top_memory_objects = self.get_top_memory_objects()
+                    self.memory_usage["gstop"] = {
+                        "total memory usage": psutil.Process().memory_info().rss,
+                        "top_memory_objects": top_memory_objects,
+                    }
+                    self.memory_usage_list.append(self.memory_usage)
 
     def step(self, topic: str = "") -> None:
         """
@@ -90,15 +162,21 @@ class Benchmarker:
         """
         if self.enable:
             self.step_dict[topic] += self.step_timer.ttoc()
+            if self.track_memory_usage and self.track_memory_in_step:  # Check both flags
+                top_memory_objects = self.get_top_memory_objects()
+                self.memory_usage[topic] = {
+                    "total memory usage": psutil.Process().memory_info().rss,
+                    "top_memory_objects": top_memory_objects,
+                }
 
     def save_data(self) -> None:
         """
         Saves benchmark results by generating plots, writing summaries, creating visualizations,
-        and saving the global dictionary list as a JSON file.
+        saving the global dictionary list as a JSON file, and saving memory usage data.
         """
         if self.enable:
             self.series = defaultdict(dict)
-            for step_number, step_dict in enumerate(self.global_dict_list):
+            for step_number, step_dict in enumerate(self.step_dict_list):
                 for step_name in step_dict.keys():
                     self.series[step_name][step_number] = step_dict[step_name]
             df_means = {
@@ -111,6 +189,7 @@ class Benchmarker:
             self.make_bars(df_means)
             self.plot_data()
             self.save_json()
+            self.save_memory_usage()
 
     def make_bars(self, df_means: Dict[str, float]) -> None:
         """
@@ -248,132 +327,11 @@ class Benchmarker:
         Saves the global dictionary list as a JSON file.
         """
         with open(self.file + "_data.json", "w") as jsonfile:
-            json.dump(self.global_dict_list, jsonfile, indent=4)
+            json.dump(self.step_dict_list, jsonfile, indent=4)
 
-
-class GlobalBenchmarker:
-    """
-    A class for managing multiple benchmark instances.
-
-    Attributes:
-        benchmarkers (Dict[str, Benchmarker]): A dictionary storing benchmark instances with names as keys.
-        enable (bool): Whether all benchmarks are enabled. Defaults to True.
-        time_string (str): A timestamp string for file naming.
-        default_path (str): The default path for storing benchmark results.
-    """
-
-    def __init__(self) -> None:
-        self.benchmarkers: Dict[str, Benchmarker] = {}
-        self.enable = True
-        self.time_string = get_timestamp()
-        self.default_path = f"performance_{self.time_string}"
-
-    def set_default_path(self, path: str) -> None:
+    def save_memory_usage(self) -> None:
         """
-        Sets the default path for storing benchmark results.
-
-        Args:
-            path (str): The base directory for storing results.
+        Saves memory usage data to a JSON file.
         """
-        self.time_string = get_timestamp()
-        self.default_path = os.path.join(path, f"performance_{self.time_string}")
-
-    def enable(self) -> None:
-        """
-        Enables all benchmark instances by setting their `enable` flags to True.
-        """
-        self.enable = True
-        for bench in self.benchmarkers.values():
-            bench.enable()
-
-    def disable(self) -> None:
-        """
-        Disables all benchmark instances by setting their `enable` flags to False.
-        """
-        self.enable = False
-        for bench in self.benchmarkers.values():
-            bench.disable()
-
-    def __getitem__(self, item: str) -> Benchmarker:
-        """
-        Retrieves or creates a benchmark instance by name.
-
-        Args:
-            item (str): The name of the benchmark instance to retrieve.
-
-        Returns:
-            Benchmarker: The requested benchmark instance.
-        """
-        get_bench: Optional[Benchmarker] = self.benchmarkers.get(item, None)
-        if get_bench is None:
-            self.benchmarkers[item] = Benchmarker(f"{self.default_path}/{item}")
-        return self.benchmarkers[item]
-
-    def save(self) -> None:
-        """
-        Saves the results of all enabled benchmark instances by calling their `save_data` methods.
-        """
-        if self.enable:
-            for bench in self.benchmarkers.values():
-                bench.save_data()
-
-
-class IterBench:
-    """
-    A wrapper for iterators that integrates benchmarking at each iteration step.
-
-    Attributes:
-        dataloader (Union[List, Dict]): The data loader or iterable to wrap.
-        name (str): The name of the benchmark instance to use. Defaults to "epoch".
-        bench_handle (GlobalBenchmarker): The global benchmark manager.
-    """
-
-    def __init__(
-        self,
-        dataloader: Union[List, Dict],
-        benchmark_handler: GlobalBenchmarker,
-        name: str = "epoch",
-    ) -> None:
-        self.dataloader = dataloader
-        self.name = name
-        self.bench_handle = benchmark_handler
-
-    def __len__(self) -> int:
-        """
-        Returns the length of the wrapped data loader.
-
-        Returns:
-            int: The number of items in the data loader.
-        """
-        return len(self.dataloader)
-
-    def __iter__(self) -> "IterBench":
-        """
-        Initializes the iterator and resets the iteration counter.
-
-        Returns:
-            IterBench: The iterator instance.
-        """
-        self.iter_obj = iter(self.dataloader)
-        self.n = 0
-        return self
-
-    def __next__(self) -> Union[Dict, List]:
-        """
-        Advances to the next item in the data loader, recording a benchmark step.
-
-        Returns:
-            Union[Dict, List]: The next item in the data loader.
-
-        Raises:
-            StopIteration: If the end of the data loader is reached.
-        """
-        if self.n < len(self.dataloader):
-            self.bench_handle[self.name].gstep()
-            self.n += 1
-            while True:
-                result = next(self.iter_obj)
-                break
-            return result
-        else:
-            raise StopIteration
+        with open(self.file + "_memory.json", "w") as jsonfile:
+            json.dump(self.memory_usage_list, jsonfile, indent=4)
