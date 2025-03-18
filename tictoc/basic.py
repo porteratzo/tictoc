@@ -1,5 +1,6 @@
 import time
 from datetime import datetime
+from typing import Optional
 
 
 def get_timestamp() -> str:
@@ -7,7 +8,7 @@ def get_timestamp() -> str:
     Gets the current date and time in a formatted string.
 
     Returns:
-        str: The current date and time formatted as "%d-%m-%y_%X"
+        str: The current date and time formatted as "%d-%m-%y_%X".
     """
     current_datetime = datetime.now()
     return current_datetime.strftime("%H:%M-%d:%m:%Y")
@@ -15,7 +16,8 @@ def get_timestamp() -> str:
 
 class Timer:
     """
-    A simple timer class offering functionalities like starting, stopping, and retrieving elapsed time.
+    A simple timer class offering functionalities like starting, stopping,
+    and retrieving elapsed time.
     """
 
     def __init__(self) -> None:
@@ -24,7 +26,7 @@ class Timer:
         """
         self.clock_time: float = time.perf_counter()
 
-    def tic(self):
+    def tic(self) -> None:
         """
         Resets the timer by setting the starting time.
         """
@@ -41,7 +43,8 @@ class Timer:
 
     def ttoc(self) -> float:
         """
-        Returns the elapsed time in seconds since the last `tic` call, then resets the timer.
+        Returns the elapsed time in seconds since the last `tic` call, then
+        resets the timer.
 
         Returns:
             float: The elapsed time in seconds.
@@ -50,36 +53,43 @@ class Timer:
         self.tic()
         return val
 
-    def ptoc(self, message: str = None) -> None:
+    def ptoc(self, message: Optional[str] = None) -> None:
         """
-        Prints a message followed by the elapsed time in seconds since the last `tic` call.
+        Prints a message followed by the elapsed time in seconds since the
+        last `tic` call.
 
         Args:
-            message (str, optional): The message to print before the elapsed time. Defaults to None.
+            message (str, optional): The message to print before the elapsed
+            time. Defaults to None.
         """
         print(message, self.toc())
 
-    def pttoc(self, message: str = None) -> None:
+    def pttoc(self, message: Optional[str] = None) -> None:
         """
-        Prints a message followed by the elapsed time in seconds since the last `tic` call, then resets the timer.
+        Prints a message followed by the elapsed time in seconds since the
+        last `tic` call, then resets the timer.
 
         Args:
-            message (str, optional): The message to print before the elapsed time. Defaults to None.
+            message (str, optional): The message to print before the elapsed
+            time. Defaults to None.
         """
         print(message, self.ttoc())
 
 
 class CountDownClock(Timer):
     """
-    Inherits from the `timer` class and adds functionality for a countdown timer.
+    Inherits from the `Timer` class and adds functionality for a countdown
+    timer.
     """
 
     def __init__(self, count_down_time: float = 10.0) -> None:
         """
-        Initializes the countdown timer with a starting countdown time and sets the starting time using the parent class constructor.
+        Initializes the countdown timer with a starting countdown time and
+        sets the starting time using the parent class constructor.
 
         Args:
-            count_down_time (float, optional): The initial countdown time in seconds. Defaults to 10.0
+            count_down_time (float, optional): The initial countdown time in
+            seconds. Defaults to 10.0.
         """
         super().__init__()
         self.count_down_time: float = count_down_time
@@ -121,7 +131,9 @@ class CountDownClock(Timer):
 
 class TimedCounter:
     """
-    A class that combines a timer and a counter, tracking both elapsed time and the number of counts within that time, and can return frequency of counts
+    A class that combines a timer and a counter, tracking both elapsed time
+    and the number of counts within that time, and can return frequency of
+    counts.
     """
 
     def __init__(self, enabled: bool = True) -> None:
@@ -129,8 +141,9 @@ class TimedCounter:
         Initializes the timed counter.
 
         Args:
-            enabled (bool, optional): Whether the timed counter functionality is enabled. Defaults to True.
-                If disabled, timer and counter functionality are not available.
+            enabled (bool, optional): Whether the timed counter functionality
+            is enabled. Defaults to True. If disabled, timer and counter
+            functionality are not available.
         """
         if enabled:
             self.timer = Timer()
@@ -149,7 +162,8 @@ class TimedCounter:
 
     def stop(self) -> None:
         """
-        Stops the timer and records the current count and elapsed time if enabled.
+        Stops the timer and records the current count and elapsed time if
+        enabled.
         """
         if self.enabled:
             self.stop_time = self.timer.toc()
@@ -167,7 +181,8 @@ class TimedCounter:
         Calculates the average count rate (counts per second) if enabled.
 
         Returns:
-            float: The average count rate in counts per second, or 0.0 if no time has elapsed.
+            float: The average count rate in counts per second, or 0.0 if no
+            time has elapsed.
         """
         if self.enabled:
             if self.stop_time == 0:
