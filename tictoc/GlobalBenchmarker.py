@@ -37,7 +37,7 @@ class GlobalBenchmarker:
         """
         self.enable = True
         for bench in self.benchmarkers.values():
-            bench.enable()
+            bench._enable()
 
     def disable(self) -> None:
         """
@@ -62,13 +62,13 @@ class GlobalBenchmarker:
             self.benchmarkers[item] = Benchmarker(f"{self.default_path}/{item}")
         return self.benchmarkers[item]
 
-    def save(self) -> None:
+    def save(self, human_readable=False) -> None:
         """
         Saves the results of all enabled benchmark instances by calling their `save_data` methods.
         """
         if self.enable:
             for bench in self.benchmarkers.values():
-                bench.save_data()
+                bench.save_data(human_readable=human_readable)
 
 
 class IterBench:
