@@ -137,6 +137,20 @@ class MemoryBenchmarker:
                     "top_memory_objects": top_memory_objects,
                 }
 
+    def dummy_gstop(self) -> None:
+        if self._enable:
+            top_memory_objects = get_top_memory_objects(self.top_n)
+            cuda_memory_usage = self.get_cuda_memory_usage() if self.track_cuda_memory else None
+            orig_memory_usage = self.memory_usage.copy()
+            orig_memory_usage_list = self.memory_usage_list.copy()
+            self.memory_usage["gstop"] = {
+                "total memory usage": psutil.Process().memory_info().rss,
+                "cuda memory usage": cuda_memory_usage,
+                "top_memory_objects": top_memory_objects,
+            }
+            self.memory_usage_list.append(self.memory_usage)
+            return orig_memory_usage, orig_memory_usage_list
+
     def get_cuda_memory_usage(self) -> Dict[str, int]:
         """
         Retrieves CUDA memory usage if a GPU is available.
@@ -152,6 +166,9 @@ class MemoryBenchmarker:
                 "max_reserved": torch.cuda.max_memory_reserved(),
             }
         return {}
+
+    def save_data(self, file, human_readable=False):
+        MemorySaver(self, file, human_readable).save_data()
 
 
 class MemorySaver(BaseSaver):
@@ -216,6 +233,8 @@ class MemorySaver(BaseSaver):
         series = self.series
         plt.figure(figsize=(18, 6))
         plt.title(os.path.basename(self.file))
+        if len(series) == 0:
+            return
         total_mem = [val["total"] for val in series]
         top_objects = np.array([val["top_objects"] for val in series])
         names = [f'{val["step_number"]}_{val["step_name"]}' for val in series]
@@ -297,17 +316,22 @@ def get_top_memory_objects(top_n: int = 5) -> List[Tuple[str, int]]:
     top_memory_objects = []
     for obj in all_objects:
         obj_size = sys.getsizeof(obj)
-        if SPECIALS and isinstance(obj, (list, tuple, set, dict)):
-            if len(obj) == 0:
-                pass
-            elif isinstance(obj, (list, tuple, set)):
-                item = next(iter(obj))
-                obj_size += sys.getsizeof(item) * len(obj)
+        try:
+            if SPECIALS and isinstance(obj, (list, tuple, set, dict)):
+                if len(obj) == 0:
+                    pass
+                elif isinstance(obj, (list, tuple, set)):
+                    item = next(iter(obj))
+                    obj_size += sys.getsizeof(item) * len(obj)
 
-            # If it's a dictionary, we need to count both keys and values
-            elif isinstance(obj, dict):
-                key, value = next(iter(obj.items()))
-                obj_size += (sys.getsizeof(value) + sys.getsizeof(key)) * len(obj)
+                # If it's a dictionary, we need to count both keys and values
+                elif isinstance(obj, dict):
+                    key, value = next(iter(obj.items()))
+                    obj_size += (sys.getsizeof(value) + sys.getsizeof(key)) * len(obj)
+        except RuntimeError:
+            pass
+        except ValueError:
+            pass
 
         if len(top_memory_objects) < top_n:
             obj_type = str(type(obj))

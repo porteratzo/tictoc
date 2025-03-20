@@ -20,7 +20,9 @@ class Benchmarker:
         started (bool): Flag indicating if a benchmark has been started.
     """
 
-    def __init__(self, file: str = "performance/base") -> None:
+    def __init__(
+        self, file: str = "performance/base", save_on_gstop: int = None, save_on_step: bool = False
+    ) -> None:
         self._enable = True
         self.time_benchmaker = TimeBenchmarker()
         self.memory_benchmaker = MemoryBenchmarker()
@@ -30,6 +32,8 @@ class Benchmarker:
 
         self.file = file
         self.folder = os.path.join(*file.split("/")[:-1])
+        self.save_on_gstop = save_on_gstop
+        self.save_on_step = save_on_step
 
         self.started = False
 
@@ -78,7 +82,7 @@ class Benchmarker:
             self.time_benchmaker.gstep()
             self.memory_benchmaker.gstep()
             if self.register_memory_times:
-                self.time_benchmaker.step('gstep_memory')
+                self.time_benchmaker.step("gstep_memory")
             self.start()
 
     def gstop(self) -> None:
@@ -89,12 +93,15 @@ class Benchmarker:
         """
         if self._enable:
             if self.started:
-                self.time_benchmaker.step('gstop')
+                self.time_benchmaker.step("gstop")
                 self.memory_benchmaker.gstop()
                 if self.register_memory_times:
-                    self.time_benchmaker.step('gstop_memory')
+                    self.time_benchmaker.step("gstop_memory")
                 self.time_benchmaker.gstop()
                 self.started = False
+                if self.save_on_gstop is not None:
+                    if len(self.time_benchmaker.step_dict_list) % self.save_on_gstop == 0:
+                        self.save_data()
 
     def step(self, topic: str = "") -> None:
         """
@@ -107,7 +114,15 @@ class Benchmarker:
             self.time_benchmaker.step(topic)
             self.memory_benchmaker.step(topic)
             if self.register_memory_times_steps:
-                self.time_benchmaker.step(topic + '_memory')
+                self.time_benchmaker.step(topic + "_memory")
+            if self.save_on_step is not None:
+                os.makedirs(self.folder, exist_ok=True)
+                orig_memory_usage, orig_memory_usage_list = self.memory_benchmaker.dummy_gstop()
+                self.memory_benchmaker.save_data(self.file)
+                self.memory_benchmaker.memory_usage, self.memory_benchmaker.memory_usage_list = (
+                    orig_memory_usage,
+                    orig_memory_usage_list,
+                )
 
     def save_data(self, human_readable=False) -> None:
         """
@@ -117,4 +132,4 @@ class Benchmarker:
         if self._enable:
             os.makedirs(self.folder, exist_ok=True)
             TimerSaver(self.time_benchmaker, self.file).save_data()
-            MemorySaver(self.memory_benchmaker, self.file, human_readable).save_data()
+            self.memory_benchmaker.save_data(self.file, human_readable=human_readable)

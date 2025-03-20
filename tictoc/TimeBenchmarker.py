@@ -120,8 +120,9 @@ class TimerSaver(BaseSaver):
             step_dict["quantile_filtered"] = np.mean(filtered_values)
             self.df_means[step_name] = step_dict
 
-        global_means = self.df_means.pop("global")
-        self.df_means = {**self.df_means, "global": global_means}
+        global_means = self.df_means.pop("global", None)
+        if global_means is not None:
+            self.df_means.update({"global": global_means})
 
     def save_data(self) -> None:
         self.write_summary()
@@ -141,7 +142,11 @@ class TimerSaver(BaseSaver):
             return (y - np.min(y)) / (np.max(y) - np.min(y))
 
         means = [v["mean"] for k, v in self.df_means.items() if k != "global"]
-        quantile_filtered_means = [v["quantile_filtered"] for k, v in self.df_means.items() if k != "global"]
+        if len(means) == 0:
+            return
+        quantile_filtered_means = [
+            v["quantile_filtered"] for k, v in self.df_means.items() if k != "global"
+        ]
         step_names = list(self.df_means.keys())
 
         fig, axes = plt.subplots(1, 2, figsize=(18, 6))
@@ -150,9 +155,10 @@ class TimerSaver(BaseSaver):
 
         # Plot for means
         axes[0].set_title("Means")
+
         bar_container_means = axes[0].bar(
             np.arange(len(means) + 1),
-            means + [self.df_means["global"]["mean"]],
+            means + [self.df_means["global"]["mean"]] if "global" in self.df_means else means,
             color=np.vstack([mymap(rescale(means)), [0, 0, 0, 1]]),
         )
         axes[0].set_xticks(np.arange(len(step_names)))
@@ -162,9 +168,21 @@ class TimerSaver(BaseSaver):
         # Plot for quantile-filtered means
         axes[1].set_title("Quantile-Filtered Means")
         bar_container_filtered = axes[1].bar(
-            np.arange(len(quantile_filtered_means) + 1),
-            quantile_filtered_means + [self.df_means["global"]["quantile_filtered"]],
-            color=np.vstack([mymap(rescale(quantile_filtered_means)), [0, 0, 0, 1]]),
+            (
+                np.arange(len(quantile_filtered_means) + 1)
+                if "global" in self.df_means
+                else np.arange(len(quantile_filtered_means))
+            ),
+            (
+                quantile_filtered_means + [self.df_means["global"]["quantile_filtered"]]
+                if "global" in self.df_means
+                else quantile_filtered_means
+            ),
+            color=(
+                np.vstack([mymap(rescale(quantile_filtered_means)), [0, 0, 0, 1]])
+                if "global" in self.df_means
+                else np.vstack([mymap(rescale(quantile_filtered_means))])
+            ),
         )
         axes[1].set_xticks(np.arange(len(step_names)))
         axes[1].set_xticklabels(step_names, rotation=45, ha="right")
@@ -209,9 +227,14 @@ class TimerSaver(BaseSaver):
         series = self.series
         plt.figure(figsize=(18, 6))
         plt.title(os.path.basename(self.file))
+        if len(series) == 0:
+            return
         max_length = max([max(step_dict.keys()) for step_dict in series.values()])
-        outlier_max = np.percentile(np.asarray(list(series["global"].values())), 75)
-        outlier_max = outlier_max * 4
+        if "global" in series.keys():
+            outlier_max = np.percentile(np.asarray(list(series["global"].values())), 75)
+            outlier_max = outlier_max * 4
+        else:
+            outlier_max = float("inf")
         for n, step_name in enumerate(series.keys()):
             X = np.arange(max_length + 1)
             Y = np.zeros(max_length + 1)

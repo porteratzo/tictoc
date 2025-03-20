@@ -27,8 +27,12 @@ def demo_bench_dict_usage():
         if i > 3:
             new_list = new_list * 2
 
+        if i == 5:
+            torch_tensor = torch_tensor.to("cpu")
+
         if i == 6:
             new_list = [i for i in range(10_000_000)]
+            torch_tensor2 = torch_tensor2.to("cpu")
 
         if i == 1:
             np_array = np.random.random([10_000, 100_00])
