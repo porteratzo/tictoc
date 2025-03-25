@@ -19,7 +19,7 @@ class GlobalBenchmarker:
         self.benchmarkers: Dict[str, Benchmarker] = {}
         self.enable = True
         self.time_string = get_timestamp()
-        self.default_path = f"performance_{self.time_string}"
+        self.default_path = f"TICTOC_PERFORMANCE/{self.time_string}"
 
     def set_default_path(self, path: str) -> None:
         """
@@ -29,7 +29,7 @@ class GlobalBenchmarker:
             path (str): The base directory for storing results.
         """
         self.time_string = get_timestamp()
-        self.default_path = os.path.join(path, f"performance_{self.time_string}")
+        self.default_path = os.path.join(path, f"{self.time_string}")
 
     def enable(self) -> None:
         """

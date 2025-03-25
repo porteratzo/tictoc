@@ -115,7 +115,7 @@ class Benchmarker:
             self.memory_benchmaker.step(topic)
             if self.register_memory_times_steps:
                 self.time_benchmaker.step(topic + "_memory")
-            if self.save_on_step is not None:
+            if self.save_on_step:
                 os.makedirs(self.folder, exist_ok=True)
                 orig_memory_usage, orig_memory_usage_list = self.memory_benchmaker.dummy_gstop()
                 self.memory_benchmaker.save_data(self.file)

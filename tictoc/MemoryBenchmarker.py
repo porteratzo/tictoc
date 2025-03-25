@@ -1,7 +1,6 @@
 from collections import defaultdict
 from typing import List, Dict, Union, Tuple
 import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
 import numpy as np
 import os
 
@@ -9,7 +8,11 @@ import json
 import psutil
 import gc
 import sys
-import torch  # Add import for PyTorch to track CUDA memory usage
+try:
+    import torch
+    CUDA_AVAILABLE = torch.cuda.is_available()
+except ImportError:
+    CUDA_AVAILABLE = False
 from .BaseSaver import BaseSaver
 
 SPECIALS = True
@@ -70,7 +73,8 @@ class MemoryBenchmarker:
         """
         Enables CUDA memory usage tracking.
         """
-        self.track_cuda_memory = True
+        if CUDA_AVAILABLE:
+            self.track_cuda_memory = True
 
     def disable_cuda_memory_tracking(self) -> None:
         """
@@ -220,10 +224,10 @@ class MemorySaver(BaseSaver):
                         ],
                     }
                 readable_data.append(readable_entry)
-            with open(self.file + "_memory_readable.json", "w") as jsonfile:
+            with open(self.file + "_MEMORY_READABLE.json", "w") as jsonfile:
                 json.dump(readable_data, jsonfile, indent=4)
         else:
-            with open(self.file + "_memory.json", "w") as jsonfile:
+            with open(self.file + "_MEMORY.json", "w") as jsonfile:
                 json.dump(self.benchmarker.memory_usage_list, jsonfile, indent=4)
 
     def plot_data(self) -> None:
@@ -255,7 +259,7 @@ class MemorySaver(BaseSaver):
         plt.xlabel("Step")
         plt.tight_layout()
         plt.legend()
-        plt.savefig(self.file + "memory.png", dpi=200)
+        plt.savefig(self.file + "_MEMORY_TIMELINE.png", dpi=200)
 
     def plot_cuda_data(self) -> None:
         """
@@ -298,7 +302,7 @@ class MemorySaver(BaseSaver):
         plt.xlabel("Step")
         plt.tight_layout()
         plt.legend()
-        plt.savefig(self.file + "_cuda_memory.png", dpi=200)
+        plt.savefig(self.file + "_CUDA_MEMORY.png", dpi=200)
 
 
 def get_top_memory_objects(top_n: int = 5) -> List[Tuple[str, int]]:

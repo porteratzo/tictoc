@@ -1,16 +1,13 @@
 import os
 from collections import defaultdict
-from typing import List, Dict, Union
+from typing import List, Dict
 import matplotlib.pyplot as plt
 from matplotlib.container import BarContainer
 from matplotlib.lines import Line2D
 
 import numpy as np
 import json
-import psutil
 from .basic import Timer
-import gc
-import sys
 from .BaseSaver import BaseSaver
 
 
@@ -35,7 +32,7 @@ class TimeBenchmarker:
         self.global_timer = Timer()
 
         self.step_dict_list: List[Dict[str, int]] = []
-        self.step_dict: Dict[str, int] = defaultdict(int)
+        self.step_dict: Dict[str, list] = defaultdict(list)
 
         self.started = False
 
@@ -68,7 +65,7 @@ class TimeBenchmarker:
         """
         if self._enable:
             self.gstop()
-            self.step_dict = defaultdict(int)
+            self.step_dict = defaultdict(list)
             self.start()
 
     def gstop(self) -> None:
@@ -79,8 +76,13 @@ class TimeBenchmarker:
         """
         if self._enable:
             if self.started:
-                if "global" not in self.step_dict.keys():
-                    self.step_dict["global"] = self.global_timer.ttoc()
+                working_keys = list(self.step_dict.keys())
+                for key in working_keys:
+                    self.step_dict[key + "_ACCUM"] = sum(self.step_dict[key])
+                if "GLOBAL" not in self.step_dict.keys():
+                    self.step_dict["GLOBAL"] = self.global_timer.ttoc()
+                if "STEP_NUMBER" not in self.step_dict.keys():
+                    self.step_dict["STEP_NUMBER"] = len(self.step_dict_list)
                 self.step_dict_list.append(self.step_dict)
                 self.started = False
 
@@ -92,7 +94,7 @@ class TimeBenchmarker:
             topic (str, optional): The name of the step being timed. Defaults to an empty string.
         """
         if self._enable:
-            self.step_dict[topic] += self.step_timer.ttoc()
+            self.step_dict[topic].append(self.step_timer.ttoc())
 
 
 class TimerSaver(BaseSaver):
@@ -102,7 +104,10 @@ class TimerSaver(BaseSaver):
         self.series = defaultdict(dict)
         for step_number, step_dict in enumerate(self.benchmarker.step_dict_list):
             for step_name in step_dict.keys():
-                self.series[step_name][step_number] = step_dict[step_name]
+                if isinstance(step_dict[step_name], list):
+                    self.series[step_name][step_number] = sum(step_dict[step_name])
+                elif step_name == "GLOBAL":
+                    self.series[step_name][step_number] = step_dict[step_name]
 
         self.df_means = {}
         for step_name in self.series.keys():
@@ -120,9 +125,9 @@ class TimerSaver(BaseSaver):
             step_dict["quantile_filtered"] = np.mean(filtered_values)
             self.df_means[step_name] = step_dict
 
-        global_means = self.df_means.pop("global", None)
+        global_means = self.df_means.pop("GLOBAL", None)
         if global_means is not None:
-            self.df_means.update({"global": global_means})
+            self.df_means.update({"GLOBAL": global_means})
 
     def save_data(self) -> None:
         self.write_summary()
@@ -141,11 +146,11 @@ class TimerSaver(BaseSaver):
                 return 0
             return (y - np.min(y)) / (np.max(y) - np.min(y))
 
-        means = [v["mean"] for k, v in self.df_means.items() if k != "global"]
+        means = [v["mean"] for k, v in self.df_means.items() if k != "GLOBAL"]
         if len(means) == 0:
             return
         quantile_filtered_means = [
-            v["quantile_filtered"] for k, v in self.df_means.items() if k != "global"
+            v["quantile_filtered"] for k, v in self.df_means.items() if k != "GLOBAL"
         ]
         step_names = list(self.df_means.keys())
 
@@ -158,7 +163,7 @@ class TimerSaver(BaseSaver):
 
         bar_container_means = axes[0].bar(
             np.arange(len(means) + 1),
-            means + [self.df_means["global"]["mean"]] if "global" in self.df_means else means,
+            means + [self.df_means["GLOBAL"]["mean"]] if "GLOBAL" in self.df_means else means,
             color=np.vstack([mymap(rescale(means)), [0, 0, 0, 1]]),
         )
         axes[0].set_xticks(np.arange(len(step_names)))
@@ -170,17 +175,17 @@ class TimerSaver(BaseSaver):
         bar_container_filtered = axes[1].bar(
             (
                 np.arange(len(quantile_filtered_means) + 1)
-                if "global" in self.df_means
+                if "GLOBAL" in self.df_means
                 else np.arange(len(quantile_filtered_means))
             ),
             (
-                quantile_filtered_means + [self.df_means["global"]["quantile_filtered"]]
-                if "global" in self.df_means
+                quantile_filtered_means + [self.df_means["GLOBAL"]["quantile_filtered"]]
+                if "GLOBAL" in self.df_means
                 else quantile_filtered_means
             ),
             color=(
                 np.vstack([mymap(rescale(quantile_filtered_means)), [0, 0, 0, 1]])
-                if "global" in self.df_means
+                if "GLOBAL" in self.df_means
                 else np.vstack([mymap(rescale(quantile_filtered_means))])
             ),
         )
@@ -189,7 +194,7 @@ class TimerSaver(BaseSaver):
         self.label_bar_heights(bar_container_filtered, axes[1])
 
         plt.tight_layout(rect=[0, 0, 1, 0.95])
-        plt.savefig(self.file + "_bar.png", dpi=200)
+        plt.savefig(self.file + "_STEP_DICT_BAR.png", dpi=200)
 
     def label_bar_heights(self, bar_container: BarContainer, axis) -> None:
         """
@@ -217,7 +222,7 @@ class TimerSaver(BaseSaver):
         Args:
             df_means (Dict[str, float]): A dictionary containing the mean times for each step.
         """
-        with open(self.file + "_summary.json", "w") as jsonfile:
+        with open(self.file + "_STEP_DICT_SUMMARY.json", "w") as jsonfile:
             json.dump(self.df_means, jsonfile, indent=4)
 
     def plot_data(self) -> None:
@@ -230,8 +235,8 @@ class TimerSaver(BaseSaver):
         if len(series) == 0:
             return
         max_length = max([max(step_dict.keys()) for step_dict in series.values()])
-        if "global" in series.keys():
-            outlier_max = np.percentile(np.asarray(list(series["global"].values())), 75)
+        if "GLOBAL" in series.keys():
+            outlier_max = np.percentile(np.asarray(list(series["GLOBAL"].values())), 75)
             outlier_max = outlier_max * 4
         else:
             outlier_max = float("inf")
@@ -288,11 +293,11 @@ class TimerSaver(BaseSaver):
         # Add the legend with both plot entries and custom entries
         plt.legend(handles=plt.gca().get_legend_handles_labels()[0] + custom_legend_elements)
 
-        plt.savefig(self.file + ".png", dpi=200)
+        plt.savefig(self.file + "_STEP_DICT_TIMELINE.png", dpi=200)
 
     def save_json(self) -> None:
         """
         Saves the global dictionary list as a JSON file.
         """
-        with open(self.file + "_data.json", "w") as jsonfile:
+        with open(self.file + "_STEP_DICT_DATA.json", "w") as jsonfile:
             json.dump(self.benchmarker.step_dict_list, jsonfile, indent=4)
