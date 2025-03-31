@@ -8,12 +8,15 @@ import json
 import psutil
 import gc
 import sys
+from time import time
+from .TimeBenchmarker import START_TIME, STOP_TIME, SPECIAL_NAMES
+
 try:
     import torch
-    CUDA_AVAILABLE = torch.cuda.is_available()
+
+    TICTOC_CUDA_AVAILABLE = torch.cuda.is_available()
 except ImportError:
-    CUDA_AVAILABLE = False
-from .BaseSaver import BaseSaver
+    TICTOC_CUDA_AVAILABLE = False
 
 SPECIALS = True
 
@@ -35,7 +38,7 @@ class MemoryBenchmarker:
         started (bool): Flag indicating if a benchmark has been started.
     """
 
-    def __init__(self, top_n: int = 5) -> None:
+    def __init__(self, top_n: int = 0) -> None:
         self._enable = True
         self.memory_usage_list: List[Dict[str, Union[int, str]]] = []
         self.memory_usage: Dict[str, Union[int, str]] = defaultdict(dict)
@@ -51,11 +54,11 @@ class MemoryBenchmarker:
         """
         self.track_memory_in_step = True
 
-    def disable_memory_tracking_in_step(self) -> None:
+    def set_top_n(self, top_n: int) -> None:
         """
-        Disables memory usage tracking specifically for the step method.
+        Sets the number of top memory-consuming objects to track.
         """
-        self.track_memory_in_step = False
+        self.top_n = top_n
 
     def enable(self) -> None:
         """
@@ -73,7 +76,7 @@ class MemoryBenchmarker:
         """
         Enables CUDA memory usage tracking.
         """
-        if CUDA_AVAILABLE:
+        if TICTOC_CUDA_AVAILABLE:
             self.track_cuda_memory = True
 
     def disable_cuda_memory_tracking(self) -> None:
@@ -97,13 +100,7 @@ class MemoryBenchmarker:
         """
         if self._enable:
             self.memory_usage = defaultdict(dict)
-            top_memory_objects = get_top_memory_objects(self.top_n)
-            cuda_memory_usage = self.get_cuda_memory_usage() if self.track_cuda_memory else None
-            self.memory_usage["gstep"] = {
-                "total memory usage": psutil.Process().memory_info().rss,
-                "cuda memory usage": cuda_memory_usage,
-                "top_memory_objects": top_memory_objects,
-            }
+            self.save_stats("gstep")
             self.start()
 
     def gstop(self) -> None:
@@ -115,13 +112,7 @@ class MemoryBenchmarker:
         if self._enable:
             if self.started:
                 self.started = False
-                top_memory_objects = get_top_memory_objects(self.top_n)
-                cuda_memory_usage = self.get_cuda_memory_usage() if self.track_cuda_memory else None
-                self.memory_usage["gstop"] = {
-                    "total memory usage": psutil.Process().memory_info().rss,
-                    "cuda memory usage": cuda_memory_usage,
-                    "top_memory_objects": top_memory_objects,
-                }
+                self.save_stats("gstop")
                 self.memory_usage_list.append(self.memory_usage)
 
     def step(self, topic: str = "") -> None:
@@ -133,27 +124,20 @@ class MemoryBenchmarker:
         """
         if self._enable:
             if self.track_memory_in_step:  # Check both flags
-                top_memory_objects = get_top_memory_objects(self.top_n)
-                cuda_memory_usage = self.get_cuda_memory_usage() if self.track_cuda_memory else None
-                self.memory_usage[topic] = {
-                    "total memory usage": psutil.Process().memory_info().rss,
-                    "cuda memory usage": cuda_memory_usage,
-                    "top_memory_objects": top_memory_objects,
-                }
+                self.save_stats(topic)
 
-    def dummy_gstop(self) -> None:
-        if self._enable:
-            top_memory_objects = get_top_memory_objects(self.top_n)
-            cuda_memory_usage = self.get_cuda_memory_usage() if self.track_cuda_memory else None
-            orig_memory_usage = self.memory_usage.copy()
-            orig_memory_usage_list = self.memory_usage_list.copy()
-            self.memory_usage["gstop"] = {
-                "total memory usage": psutil.Process().memory_info().rss,
-                "cuda memory usage": cuda_memory_usage,
-                "top_memory_objects": top_memory_objects,
-            }
-            self.memory_usage_list.append(self.memory_usage)
-            return orig_memory_usage, orig_memory_usage_list
+    def save_stats(self, topic):
+        top_memory_objects = get_top_memory_objects(self.top_n)
+        cuda_memory_usage = self.get_cuda_memory_usage() if self.track_cuda_memory else None
+        self.memory_usage[topic] = {
+            "total memory usage": psutil.Process().memory_info().rss,
+            "cuda memory usage": cuda_memory_usage,
+            "top_memory_objects": top_memory_objects,
+        }
+        if topic == "gstep":
+            self.memory_usage[START_TIME] = time()
+        elif topic == "gstop":
+            self.memory_usage[STOP_TIME] = time()
 
     def get_cuda_memory_usage(self) -> Dict[str, int]:
         """
@@ -162,7 +146,7 @@ class MemoryBenchmarker:
         Returns:
             Dict[str, int]: A dictionary containing CUDA memory usage statistics.
         """
-        if torch.cuda.is_available():
+        if TICTOC_CUDA_AVAILABLE:
             return {
                 "allocated": torch.cuda.memory_allocated(),
                 "reserved": torch.cuda.memory_reserved(),
@@ -171,22 +155,63 @@ class MemoryBenchmarker:
             }
         return {}
 
-    def save_data(self, file, human_readable=False):
-        MemorySaver(self, file, human_readable).save_data()
+    def save_data(self, file):
+        MemorySaver(self, file).save_data()
 
 
-class MemorySaver(BaseSaver):
+class MemorySaver:
     def __init__(
         self,
         benchmarker: MemoryBenchmarker,
         file: str = "performance/base",
-        human_readable: bool = False,
     ) -> None:
-        super().__init__(benchmarker, file)
-        self.human_readable = human_readable  # New argument to enable human-readable format
+        self.file = file
+        self.folder = os.path.join(*file.split("/")[:-1])
+        self.benchmarker = benchmarker
 
         self.series = []
-        for step_number, step_dict in enumerate(self.benchmarker.memory_usage_list):
+        self.WORKING_LIST = self.benchmarker.memory_usage_list.copy()
+        if self.benchmarker.started:
+            self.WORKING_LIST.append(self.benchmarker.memory_usage)
+
+    def save_data(self) -> None:
+        """
+        Saves benchmark results by generating plots, writing summaries, creating visualizations,
+        saving the global dictionary list as a JSON file, and saving memory usage data.
+        """
+        # self.plot_data()
+        # self.plot_cuda_data()  # Plot CUDA metrics
+        self.save_memory_usage()
+
+    def save_memory_usage(self) -> None:
+        """
+        Saves memory usage data to a JSON file.
+        """
+        final_format = self.format_json()
+        with open(self.file + "_MEMORY.json", "w") as jsonfile:
+            json.dump(final_format, jsonfile, indent=4)
+
+    def format_json(self):
+        final_format = []
+        for n, step_dict in enumerate(self.WORKING_LIST):
+            formated_step_dict = {"info": {}, "data": {}}
+            working_keys = list(step_dict.keys())
+            for key in working_keys:
+                if key in SPECIAL_NAMES:
+                    continue
+                formated_step_dict["data"][key] = step_dict[key]
+            formated_step_dict["info"]["STEP_NUMBER"] = n
+            formated_step_dict["info"][START_TIME] = step_dict[START_TIME]
+            formated_step_dict["info"][STOP_TIME] = step_dict.get(STOP_TIME, 0)
+            final_format.append(formated_step_dict)
+        return final_format
+
+    def plot_data(self) -> None:
+        """
+        Generates a time series plot of benchmark results, highlighting outliers and missing data.
+        """
+
+        for step_number, step_dict in enumerate(self.WORKING_LIST):
             for step_name in step_dict.keys():
                 self.series.append(
                     {
@@ -196,44 +221,6 @@ class MemorySaver(BaseSaver):
                         "top_objects": [i[1] for i in step_dict[step_name]["top_memory_objects"]],
                     }
                 )
-
-    def save_data(self) -> None:
-        """
-        Saves benchmark results by generating plots, writing summaries, creating visualizations,
-        saving the global dictionary list as a JSON file, and saving memory usage data.
-        """
-        self.plot_data()
-        self.plot_cuda_data()  # Plot CUDA metrics
-        self.save_memory_usage()
-
-    def save_memory_usage(self) -> None:
-        """
-        Saves memory usage data to a JSON file.
-        """
-        if self.human_readable:
-            # Convert memory usage to human-readable format
-            readable_data = []
-            for entry in self.benchmarker.memory_usage_list:
-                readable_entry = {}
-                for step, metrics in entry.items():
-                    readable_entry[step] = {
-                        "total memory usage": f"{metrics['total memory usage'] / (1024 ** 2):.2f} MB",
-                        "top_memory_objects": [
-                            (obj[0], f"{obj[1] / (1024 ** 2):.2f} MB")
-                            for obj in metrics["top_memory_objects"]
-                        ],
-                    }
-                readable_data.append(readable_entry)
-            with open(self.file + "_MEMORY_READABLE.json", "w") as jsonfile:
-                json.dump(readable_data, jsonfile, indent=4)
-        else:
-            with open(self.file + "_MEMORY.json", "w") as jsonfile:
-                json.dump(self.benchmarker.memory_usage_list, jsonfile, indent=4)
-
-    def plot_data(self) -> None:
-        """
-        Generates a time series plot of benchmark results, highlighting outliers and missing data.
-        """
         series = self.series
         plt.figure(figsize=(18, 6))
         plt.title(os.path.basename(self.file))
@@ -245,7 +232,6 @@ class MemorySaver(BaseSaver):
         x_names = np.arange(len(names))
         more_names = ["object_" + str(i) for i in range(len(top_objects[0]))]
 
-        # Convert memory usage to MB for human-readable format
         total_mem_mb = [mem / (1024**2) for mem in total_mem]
         top_objects_mb = top_objects / (1024**2)
 
@@ -265,7 +251,7 @@ class MemorySaver(BaseSaver):
         """
         Generates a plot for CUDA memory usage metrics.
         """
-        series = self.benchmarker.memory_usage_list
+        series = self.WORKING_LIST
         if not any("cuda memory usage" in entry[key] for entry in series for key in entry.keys()):
             # Skip plotting if no CUDA data is available
             return
@@ -312,39 +298,40 @@ def get_top_memory_objects(top_n: int = 5) -> List[Tuple[str, int]]:
     Returns:
         List[Tuple[str, int]]: A list of tuples containing the type and size of the top objects.
     """
-    gc.collect()
-    if True:
-        all_objects = gc.get_objects()
+    if top_n == 0:
+        return []
     else:
-        all_objects = get_all_objects()
-    top_memory_objects = []
-    for obj in all_objects:
-        obj_size = sys.getsizeof(obj)
-        try:
-            if SPECIALS and isinstance(obj, (list, tuple, set, dict)):
-                if len(obj) == 0:
-                    pass
-                elif isinstance(obj, (list, tuple, set)):
-                    item = next(iter(obj))
-                    obj_size += sys.getsizeof(item) * len(obj)
+        gc.collect()
+        if True:
+            all_objects = gc.get_objects()
+        else:
+            all_objects = get_all_objects()
+        top_memory_objects = []
+        for obj in all_objects:
+            obj_size = sys.getsizeof(obj)
+            try:
+                if SPECIALS and isinstance(obj, (list, tuple, set, dict)):
+                    if len(obj) == 0:
+                        pass
+                    elif isinstance(obj, (list, tuple, set)):
+                        item = next(iter(obj))
+                        obj_size += sys.getsizeof(item) * len(obj)
+                    elif isinstance(obj, dict):
+                        key, value = next(iter(obj.items()))
+                        obj_size += (sys.getsizeof(value) + sys.getsizeof(key)) * len(obj)
+            except RuntimeError:
+                pass
+            except ValueError:
+                pass
 
-                # If it's a dictionary, we need to count both keys and values
-                elif isinstance(obj, dict):
-                    key, value = next(iter(obj.items()))
-                    obj_size += (sys.getsizeof(value) + sys.getsizeof(key)) * len(obj)
-        except RuntimeError:
-            pass
-        except ValueError:
-            pass
-
-        if len(top_memory_objects) < top_n:
-            obj_type = str(type(obj))
-            top_memory_objects.append((obj_type, obj_size))
-            top_memory_objects.sort(key=lambda x: x[1], reverse=True)
-        elif obj_size > top_memory_objects[-1][1]:
-            obj_type = str(type(obj))
-            top_memory_objects[-1] = (obj_type, obj_size)
-            top_memory_objects.sort(key=lambda x: x[1], reverse=True)
+            if len(top_memory_objects) < top_n:
+                obj_type = str(type(obj))
+                top_memory_objects.append((obj_type, obj_size))
+                top_memory_objects.sort(key=lambda x: x[1], reverse=True)
+            elif obj_size > top_memory_objects[-1][1]:
+                obj_type = str(type(obj))
+                top_memory_objects[-1] = (obj_type, obj_size)
+                top_memory_objects.sort(key=lambda x: x[1], reverse=True)
     return top_memory_objects
 
 

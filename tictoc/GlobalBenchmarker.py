@@ -3,6 +3,8 @@ from typing import List, Dict, Optional, Union
 from .basic import get_timestamp
 from .Benchmarker import Benchmarker
 
+DEFAULT_SAVING_DIR = "TICTOC_PERFORMANCE"
+
 
 class GlobalBenchmarker:
     """
@@ -17,9 +19,9 @@ class GlobalBenchmarker:
 
     def __init__(self) -> None:
         self.benchmarkers: Dict[str, Benchmarker] = {}
-        self.enable = True
+        self.enabled = True
         self.time_string = get_timestamp()
-        self.default_path = f"TICTOC_PERFORMANCE/{self.time_string}"
+        self.default_path = os.path.join(DEFAULT_SAVING_DIR, self.time_string)
 
     def set_default_path(self, path: str) -> None:
         """
@@ -35,15 +37,15 @@ class GlobalBenchmarker:
         """
         Enables all benchmark instances by setting their `enable` flags to True.
         """
-        self.enable = True
+        self.enabled = True
         for bench in self.benchmarkers.values():
-            bench._enable()
+            bench.enable()
 
     def disable(self) -> None:
         """
         Disables all benchmark instances by setting their `enable` flags to False.
         """
-        self.enable = False
+        self.enabled = False
         for bench in self.benchmarkers.values():
             bench.disable()
 
@@ -62,13 +64,13 @@ class GlobalBenchmarker:
             self.benchmarkers[item] = Benchmarker(f"{self.default_path}/{item}")
         return self.benchmarkers[item]
 
-    def save(self, human_readable=False) -> None:
+    def save(self) -> None:
         """
         Saves the results of all enabled benchmark instances by calling their `save_data` methods.
         """
-        if self.enable:
+        if self.enabled:
             for bench in self.benchmarkers.values():
-                bench.save_data(human_readable=human_readable)
+                bench.save_data()
 
 
 class IterBench:

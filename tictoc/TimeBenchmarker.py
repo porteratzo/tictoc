@@ -7,8 +7,12 @@ from matplotlib.lines import Line2D
 
 import numpy as np
 import json
+from time import time
 from .basic import Timer
-from .BaseSaver import BaseSaver
+
+START_TIME = "START_TIME"
+STOP_TIME = "STOP_TIME"
+SPECIAL_NAMES = [START_TIME, STOP_TIME]
 
 
 class TimeBenchmarker:
@@ -66,6 +70,7 @@ class TimeBenchmarker:
         if self._enable:
             self.gstop()
             self.step_dict = defaultdict(list)
+            self.step_dict[START_TIME] = time()
             self.start()
 
     def gstop(self) -> None:
@@ -76,13 +81,9 @@ class TimeBenchmarker:
         """
         if self._enable:
             if self.started:
-                working_keys = list(self.step_dict.keys())
-                for key in working_keys:
-                    self.step_dict[key + "_ACCUM"] = sum(self.step_dict[key])
                 if "GLOBAL" not in self.step_dict.keys():
-                    self.step_dict["GLOBAL"] = self.global_timer.ttoc()
-                if "STEP_NUMBER" not in self.step_dict.keys():
-                    self.step_dict["STEP_NUMBER"] = len(self.step_dict_list)
+                    self.step_dict["GLOBAL"] = [self.global_timer.ttoc()]
+                self.step_dict[STOP_TIME] = time()
                 self.step_dict_list.append(self.step_dict)
                 self.started = False
 
@@ -96,19 +97,23 @@ class TimeBenchmarker:
         if self._enable:
             self.step_dict[topic].append(self.step_timer.ttoc())
 
+    def save_data(self, file):
+        TimerSaver(self, file).save_data()
 
-class TimerSaver(BaseSaver):
+
+class TimerSaver:
     def __init__(self, benchmarker: TimeBenchmarker, file: str = "performance/base") -> None:
-        super().__init__(benchmarker, file)
+        self.file = file
+        self.folder = os.path.join(*file.split("/")[:-1])
+        self.benchmarker = benchmarker
 
         self.series = defaultdict(dict)
-        for step_number, step_dict in enumerate(self.benchmarker.step_dict_list):
-            for step_name in step_dict.keys():
-                if isinstance(step_dict[step_name], list):
-                    self.series[step_name][step_number] = sum(step_dict[step_name])
-                elif step_name == "GLOBAL":
-                    self.series[step_name][step_number] = step_dict[step_name]
 
+        self.WORKING_LIST = self.benchmarker.step_dict_list.copy()
+        if self.benchmarker.started:
+            self.WORKING_LIST.append(self.benchmarker.step_dict)
+
+    def summarize_data(self):
         self.df_means = {}
         for step_name in self.series.keys():
             all_values = np.array(list(self.series[step_name].values()))
@@ -131,8 +136,8 @@ class TimerSaver(BaseSaver):
 
     def save_data(self) -> None:
         self.write_summary()
-        self.make_bars()
-        self.plot_data()
+        # self.make_bars()
+        # self.plot_data()
         self.save_json()
 
     def make_bars(self) -> None:
@@ -222,6 +227,7 @@ class TimerSaver(BaseSaver):
         Args:
             df_means (Dict[str, float]): A dictionary containing the mean times for each step.
         """
+        self.summarize_data()
         with open(self.file + "_STEP_DICT_SUMMARY.json", "w") as jsonfile:
             json.dump(self.df_means, jsonfile, indent=4)
 
@@ -229,6 +235,12 @@ class TimerSaver(BaseSaver):
         """
         Generates a time series plot of benchmark results, highlighting outliers and missing data.
         """
+        for step_number, step_dict in enumerate(self.WORKING_LIST):
+            for step_name in step_dict.keys():
+                if isinstance(step_dict[step_name], list):
+                    self.series[step_name][step_number] = sum(step_dict[step_name])
+                elif step_name == "GLOBAL":
+                    self.series[step_name][step_number] = step_dict[step_name]
         series = self.series
         plt.figure(figsize=(18, 6))
         plt.title(os.path.basename(self.file))
@@ -299,5 +311,23 @@ class TimerSaver(BaseSaver):
         """
         Saves the global dictionary list as a JSON file.
         """
+        final_format = self.format_json()
+
         with open(self.file + "_STEP_DICT_DATA.json", "w") as jsonfile:
-            json.dump(self.benchmarker.step_dict_list, jsonfile, indent=4)
+            json.dump(final_format, jsonfile, indent=4)
+
+    def format_json(self):
+        final_format = []
+        for n, step_dict in enumerate(self.WORKING_LIST):
+            formated_step_dict = {"absolutes": {}, "info": {}, "individual_calls": {}}
+            working_keys = list(step_dict.keys())
+            for key in working_keys:
+                if key in SPECIAL_NAMES:
+                    continue
+                formated_step_dict["absolutes"][key] = sum(step_dict[key])
+                formated_step_dict["individual_calls"][key] = step_dict[key]
+            formated_step_dict["info"]["STEP_NUMBER"] = n
+            formated_step_dict["info"][START_TIME] = step_dict[START_TIME]
+            formated_step_dict["info"][STOP_TIME] = step_dict.get(STOP_TIME, 0)
+            final_format.append(formated_step_dict)
+        return final_format
