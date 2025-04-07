@@ -114,6 +114,13 @@ class TimerSaver:
             self.WORKING_LIST.append(self.benchmarker.step_dict)
 
     def summarize_data(self):
+        for step_number, step_dict in enumerate(self.WORKING_LIST):
+            for step_name in step_dict.keys():
+                if step_name in SPECIAL_NAMES:
+                    continue
+                if isinstance(step_dict[step_name], list):
+                    self.series[step_name][step_number] = sum(step_dict[step_name])
+
         self.df_means = {}
         for step_name in self.series.keys():
             all_values = np.array(list(self.series[step_name].values()))
@@ -235,12 +242,6 @@ class TimerSaver:
         """
         Generates a time series plot of benchmark results, highlighting outliers and missing data.
         """
-        for step_number, step_dict in enumerate(self.WORKING_LIST):
-            for step_name in step_dict.keys():
-                if isinstance(step_dict[step_name], list):
-                    self.series[step_name][step_number] = sum(step_dict[step_name])
-                elif step_name == "GLOBAL":
-                    self.series[step_name][step_number] = step_dict[step_name]
         series = self.series
         plt.figure(figsize=(18, 6))
         plt.title(os.path.basename(self.file))
