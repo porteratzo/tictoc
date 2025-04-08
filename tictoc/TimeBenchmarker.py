@@ -4,6 +4,7 @@ from typing import List, Dict
 import matplotlib.pyplot as plt
 from matplotlib.container import BarContainer
 from matplotlib.lines import Line2D
+from scipy.ndimage import gaussian_filter1d
 
 import numpy as np
 import json
@@ -147,86 +148,6 @@ class TimerSaver:
         # self.plot_data()
         self.save_json()
 
-    def make_bars(self) -> None:
-        """
-        Creates bar chart visualizations of the benchmark results with two subplots:
-        one for the means and another for the quantile-filtered means.
-        """
-
-        def rescale(y):
-            if (np.max(y) - np.min(y)) == 0:
-                return 0
-            return (y - np.min(y)) / (np.max(y) - np.min(y))
-
-        means = [v["mean"] for k, v in self.df_means.items() if k != "GLOBAL"]
-        if len(means) == 0:
-            return
-        quantile_filtered_means = [
-            v["quantile_filtered"] for k, v in self.df_means.items() if k != "GLOBAL"
-        ]
-        step_names = list(self.df_means.keys())
-
-        fig, axes = plt.subplots(1, 2, figsize=(18, 6))
-        fig.suptitle(os.path.basename(self.file) + "_bar")
-        mymap = plt.get_cmap("jet")
-
-        # Plot for means
-        axes[0].set_title("Means")
-
-        bar_container_means = axes[0].bar(
-            np.arange(len(means) + 1),
-            means + [self.df_means["GLOBAL"]["mean"]] if "GLOBAL" in self.df_means else means,
-            color=np.vstack([mymap(rescale(means)), [0, 0, 0, 1]]),
-        )
-        axes[0].set_xticks(np.arange(len(step_names)))
-        axes[0].set_xticklabels(step_names, rotation=45, ha="right")
-        self.label_bar_heights(bar_container_means, axes[0])
-
-        # Plot for quantile-filtered means
-        axes[1].set_title("Quantile-Filtered Means")
-        bar_container_filtered = axes[1].bar(
-            (
-                np.arange(len(quantile_filtered_means) + 1)
-                if "GLOBAL" in self.df_means
-                else np.arange(len(quantile_filtered_means))
-            ),
-            (
-                quantile_filtered_means + [self.df_means["GLOBAL"]["quantile_filtered"]]
-                if "GLOBAL" in self.df_means
-                else quantile_filtered_means
-            ),
-            color=(
-                np.vstack([mymap(rescale(quantile_filtered_means)), [0, 0, 0, 1]])
-                if "GLOBAL" in self.df_means
-                else np.vstack([mymap(rescale(quantile_filtered_means))])
-            ),
-        )
-        axes[1].set_xticks(np.arange(len(step_names)))
-        axes[1].set_xticklabels(step_names, rotation=45, ha="right")
-        self.label_bar_heights(bar_container_filtered, axes[1])
-
-        plt.tight_layout(rect=[0, 0, 1, 0.95])
-        plt.savefig(self.file + "_STEP_DICT_BAR.png", dpi=200)
-
-    def label_bar_heights(self, bar_container: BarContainer, axis) -> None:
-        """
-        Adds labels to the bar chart indicating the height of each bar.
-
-        Args:
-            bar_container (BarContainer): The container for the bars in the chart.
-            axis: The axis object to annotate the bars on.
-        """
-        y_offset = max([bar.get_height() for bar in bar_container]) * 0.04
-        for bar in bar_container:
-            height = bar.get_height()
-            axis.text(
-                bar.get_x() + bar.get_width() / 2,
-                height + y_offset,
-                f"{round(height, 3)}",
-                ha="center",
-                va="top",
-            )
-
     def write_summary(self) -> None:
         """
         Writes a summary of the benchmark results to a Json file.
@@ -237,76 +158,6 @@ class TimerSaver:
         self.summarize_data()
         with open(self.file + "_STEP_DICT_SUMMARY.json", "w") as jsonfile:
             json.dump(self.df_means, jsonfile, indent=4)
-
-    def plot_data(self) -> None:
-        """
-        Generates a time series plot of benchmark results, highlighting outliers and missing data.
-        """
-        series = self.series
-        plt.figure(figsize=(18, 6))
-        plt.title(os.path.basename(self.file))
-        if len(series) == 0:
-            return
-        max_length = max([max(step_dict.keys()) for step_dict in series.values()])
-        if "GLOBAL" in series.keys():
-            outlier_max = np.percentile(np.asarray(list(series["GLOBAL"].values())), 75)
-            outlier_max = outlier_max * 4
-        else:
-            outlier_max = float("inf")
-        for n, step_name in enumerate(series.keys()):
-            X = np.arange(max_length + 1)
-            Y = np.zeros(max_length + 1)
-
-            real_values = np.asarray(list(series[step_name].values()))
-            real_steps = list(series[step_name].keys())
-            for step_number, step_time in series[step_name].items():
-                Y[step_number] = step_time
-
-            Q3 = np.percentile(real_values, 75, interpolation="midpoint")
-            upper_bound = Y > outlier_max
-
-            Y_no_outliers = Y.copy()
-            Y_no_outliers[upper_bound] = Q3
-
-            (line1,) = plt.plot(X, Y_no_outliers, label=step_name)
-
-            plt.plot(
-                X[upper_bound],
-                Y_no_outliers[upper_bound],
-                color=line1.get_color(),
-                marker=r"$\uparrow$",
-                markersize=10,
-                linestyle="",
-                label="_nolegend_",
-            )
-            for k, (i, j) in enumerate(zip(X[upper_bound], Y_no_outliers[upper_bound])):
-                plt.text(i, j, f"{Y[upper_bound][k]:.3e}", fontsize=9, ha="right")
-
-            no_appear_steps = [i for i in range(max_length) if i not in real_steps]
-            plt.plot(
-                no_appear_steps,
-                np.zeros(len(no_appear_steps)),
-                color=line1.get_color(),
-                marker="o",
-                label="_nolegend_",
-                linestyle="",
-                markersize=(len(series) - n - 1) * 4 + 4,
-            )
-        plt.tight_layout()
-        plt.legend()
-        custom_legend_elements = [
-            Line2D(
-                [0], [0], marker="x", color="b", markerfacecolor="k", markersize=8, label="Outlier"
-            ),
-            Line2D(
-                [0], [0], marker="o", color="b", markerfacecolor="k", markersize=8, label="No Data"
-            ),
-        ]
-
-        # Add the legend with both plot entries and custom entries
-        plt.legend(handles=plt.gca().get_legend_handles_labels()[0] + custom_legend_elements)
-
-        plt.savefig(self.file + "_STEP_DICT_TIMELINE.png", dpi=200)
 
     def save_json(self) -> None:
         """
@@ -332,3 +183,166 @@ class TimerSaver:
             formated_step_dict["info"][STOP_TIME] = step_dict.get(STOP_TIME, 0)
             final_format.append(formated_step_dict)
         return final_format
+
+
+class TimePlotter:
+    def __init__(self, folder_path: str = None) -> None:
+        self.folder_path = folder_path
+        self.series = defaultdict(dict)
+
+    def make_bars(self, summary_data, file_topic="") -> None:
+        """
+        Creates bar chart visualizations of the benchmark results with two subplots:
+        one for the means and another for the quantile-filtered means.
+        """
+
+        def rescale(y):
+            if (np.max(y) - np.min(y)) == 0:
+                return 0
+            return (y - np.min(y)) / (np.max(y) - np.min(y))
+
+        means = [v["mean"] for k, v in summary_data.items() if k != "GLOBAL"]
+        if len(means) == 0:
+            return
+        quantile_filtered_means = [
+            v["quantile_filtered"] for k, v in summary_data.items() if k != "GLOBAL"
+        ]
+        step_names = list(summary_data.keys())
+
+        fig, axes = plt.subplots(1, 2, figsize=(18, 6))
+        fig.suptitle(os.path.basename(file_topic) + "_bar")
+        mymap = plt.get_cmap("jet")
+
+        # Plot for means
+        axes[0].set_title("Means")
+
+        bar_container_means = axes[0].bar(
+            np.arange(len(means) + 1),
+            means + [summary_data["GLOBAL"]["mean"]] if "GLOBAL" in summary_data else means,
+            color=np.vstack([mymap(rescale(means)), [0, 0, 0, 1]]),
+        )
+        axes[0].set_xticks(np.arange(len(step_names)))
+        axes[0].set_xticklabels(step_names, rotation=45, ha="right")
+        label_bar_heights(bar_container_means, axes[0])
+
+        # Plot for quantile-filtered means
+        axes[1].set_title("Quantile-Filtered Means")
+        bar_container_filtered = axes[1].bar(
+            (
+                np.arange(len(quantile_filtered_means) + 1)
+                if "GLOBAL" in summary_data
+                else np.arange(len(quantile_filtered_means))
+            ),
+            (
+                quantile_filtered_means + [summary_data["GLOBAL"]["quantile_filtered"]]
+                if "GLOBAL" in summary_data
+                else quantile_filtered_means
+            ),
+            color=(
+                np.vstack([mymap(rescale(quantile_filtered_means)), [0, 0, 0, 1]])
+                if "GLOBAL" in summary_data
+                else np.vstack([mymap(rescale(quantile_filtered_means))])
+            ),
+        )
+        axes[1].set_xticks(np.arange(len(step_names)))
+        axes[1].set_xticklabels(step_names, rotation=45, ha="right")
+        label_bar_heights(bar_container_filtered, axes[1])
+
+        plt.tight_layout(rect=[0, 0, 1, 0.95])
+        plt.savefig(self.folder_path + "/" + file_topic + "_STEP_DICT_BAR.png", dpi=200)
+
+    def plot_data(
+        self, absolutes_data, topic="", smooth: float = None, percentile=75, max_mult=4
+    ) -> None:
+        """
+        Generates a time series plot of benchmark results, highlighting outliers and missing data.
+        """
+        seriesDF = absolutes_data
+        plt.figure(figsize=(18, 6))
+        plt.title(topic)
+        if len(seriesDF) == 0:
+            return
+        max_length = seriesDF.shape[0]
+        if "GLOBAL" in seriesDF.keys():
+            outlier_max = np.percentile(np.asarray(seriesDF["GLOBAL"]), percentile)
+            outlier_max = outlier_max * max_mult
+        else:
+            outlier_max = float("inf")
+        for n, step_name in enumerate(seriesDF.keys()):
+            X = np.arange(max_length + 1)
+            Y = np.zeros(max_length + 1)
+
+            real_values = np.asarray(list(seriesDF[step_name]))
+            real_steps = list(seriesDF[step_name].keys())
+            for step_number, step_time in seriesDF[step_name].items():
+                Y[step_number] = step_time
+
+            Q3 = np.percentile(real_values, 75, interpolation="midpoint")
+            upper_bound = Y > outlier_max
+
+            Y = np.nan_to_num(Y, nan=0)
+            Y_no_outliers = Y.copy()
+            Y_no_outliers[upper_bound] = Q3
+
+            if smooth is not None:
+                Y_no_outliers = gaussian_filter1d(Y_no_outliers, smooth)
+
+            (line1,) = plt.plot(X, Y_no_outliers, label=step_name)
+
+            plt.plot(
+                X[upper_bound],
+                Y_no_outliers[upper_bound],
+                color=line1.get_color(),
+                marker=r"$\uparrow$",
+                markersize=10,
+                linestyle="",
+                label="_nolegend_",
+            )
+            for k, (i, j) in enumerate(zip(X[upper_bound], Y_no_outliers[upper_bound])):
+                plt.text(i, j, f"{Y[upper_bound][k]:.3e}", fontsize=9, ha="right")
+
+            no_appear_steps = [i for i in range(max_length) if i not in real_steps]
+            plt.plot(
+                no_appear_steps,
+                np.zeros(len(no_appear_steps)),
+                color=line1.get_color(),
+                marker="o",
+                label="_nolegend_",
+                linestyle="",
+                markersize=(len(seriesDF) - n - 1) * 4 + 4,
+            )
+        plt.tight_layout()
+        plt.legend()
+        custom_legend_elements = [
+            Line2D(
+                [0], [0], marker="x", color="b", markerfacecolor="k", markersize=8, label="Outlier"
+            ),
+            Line2D(
+                [0], [0], marker="o", color="b", markerfacecolor="k", markersize=8, label="No Data"
+            ),
+        ]
+
+        # Add the legend with both plot entries and custom entries
+        plt.legend(handles=plt.gca().get_legend_handles_labels()[0] + custom_legend_elements)
+
+        plt.savefig(self.folder_path + "/" + topic + "_STEP_DICT_TIMELINE.png", dpi=200)
+
+
+def label_bar_heights(bar_container: BarContainer, axis) -> None:
+    """
+    Adds labels to the bar chart indicating the height of each bar.
+
+    Args:
+        bar_container (BarContainer): The container for the bars in the chart.
+        axis: The axis object to annotate the bars on.
+    """
+    y_offset = max([bar.get_height() for bar in bar_container]) * 0.04
+    for bar in bar_container:
+        height = bar.get_height()
+        axis.text(
+            bar.get_x() + bar.get_width() / 2,
+            height + y_offset,
+            f"{round(height, 3)}",
+            ha="center",
+            va="top",
+        )
