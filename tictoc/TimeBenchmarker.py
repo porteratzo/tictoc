@@ -115,32 +115,7 @@ class TimerSaver:
             self.WORKING_LIST.append(self.benchmarker.step_dict)
 
     def summarize_data(self):
-        for step_number, step_dict in enumerate(self.WORKING_LIST):
-            for step_name in step_dict.keys():
-                if step_name in SPECIAL_NAMES:
-                    continue
-                if isinstance(step_dict[step_name], list):
-                    self.series[step_name][step_number] = sum(step_dict[step_name])
-
-        self.df_means = {}
-        for step_name in self.series.keys():
-            all_values = np.array(list(self.series[step_name].values()))
-            step_dict = {}
-            step_dict["mean"] = np.mean(all_values)
-            step_dict["min"] = np.min(all_values) if len(all_values[all_values != 0]) > 0 else 0
-            step_dict["max"] = np.max(all_values)  # Added max calculation
-            upper_quantile = np.percentile(all_values, 75)
-            lower_quantile = np.percentile(all_values, 25)
-            quantile_range = upper_quantile - lower_quantile
-            upper_bound = upper_quantile + quantile_range * 1.5
-            lower_bound = lower_quantile - quantile_range * 1.5
-            filtered_values = [v for v in all_values if v <= upper_bound and v >= lower_bound]
-            step_dict["quantile_filtered"] = np.mean(filtered_values)
-            self.df_means[step_name] = step_dict
-
-        global_means = self.df_means.pop("GLOBAL", None)
-        if global_means is not None:
-            self.df_means.update({"GLOBAL": global_means})
+        self.df_means, self.series = summurize(self.WORKING_LIST)
 
     def save_data(self) -> None:
         self.write_summary()
@@ -207,6 +182,7 @@ class TimePlotter:
         quantile_filtered_means = [
             v["quantile_filtered"] for k, v in summary_data.items() if k != "GLOBAL"
         ]
+        quantile_filtered_means = np.nan_to_num(quantile_filtered_means, nan=0).tolist()
         step_names = list(summary_data.keys())
 
         fig, axes = plt.subplots(1, 2, figsize=(18, 6))
@@ -346,3 +322,35 @@ def label_bar_heights(bar_container: BarContainer, axis) -> None:
             ha="center",
             va="top",
         )
+
+
+def summurize(working_list, percentile=75, filter_below=0):
+    series = defaultdict(dict)
+    for step_number, step_dict in enumerate(working_list):
+        for step_name in step_dict.keys():
+            if step_name in SPECIAL_NAMES:
+                continue
+            if isinstance(step_dict[step_name], list):
+                series[step_name][step_number] = sum(step_dict[step_name])
+
+    df_means = {}
+    for step_name in series.keys():
+        all_values = np.array(list(series[step_name].values()))
+        step_dict = {}
+        step_dict["mean"] = np.mean(all_values)
+        step_dict["min"] = np.min(all_values) if len(all_values[all_values != 0]) > 0 else 0
+        step_dict["max"] = np.max(all_values)  # Added max calculation
+        upper_quantile = np.percentile(all_values, percentile)
+        lower_quantile = np.percentile(all_values, 100 - percentile)
+        quantile_range = upper_quantile - lower_quantile
+        upper_bound = upper_quantile + quantile_range * 1.5
+        lower_bound = lower_quantile - quantile_range * 1.5
+        lower_bound = max(lower_bound, filter_below)
+        filtered_values = [v for v in all_values if v <= upper_bound and v >= lower_bound]
+        step_dict["quantile_filtered"] = np.mean(filtered_values)
+        df_means[step_name] = step_dict
+
+    global_means = df_means.pop("GLOBAL", None)
+    if global_means is not None:
+        df_means.update({"GLOBAL": global_means})
+    return df_means, series
