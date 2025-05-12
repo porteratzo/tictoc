@@ -5,6 +5,7 @@ from datetime import datetime
 import pandas as pd
 
 APPENDED_STEP_DATA_NAME = "_STEP_DICT_DATA"
+APPENDED_MEMORY_NAME = "_MEMORY"
 APPENDED_SUMMARY_NAME = "_STEP_DICT_SUMMARY"
 APPENDED_DIR_NAME = "TICTOC_PERFORMANCE"
 
@@ -45,6 +46,15 @@ def get_absolutes(step_dict_data):
     for benchmark_key in step_dict_data:
         DF_dict[benchmark_key] = pd.DataFrame(
             [step["absolutes"] for step in step_dict_data[benchmark_key]]
+        )
+    return DF_dict
+
+
+def get_calls(step_dict_data):
+    DF_dict = {}
+    for benchmark_key in step_dict_data:
+        DF_dict[benchmark_key] = pd.DataFrame(
+            [step["individual_calls"] for step in step_dict_data[benchmark_key]]
         )
     return DF_dict
 

@@ -10,6 +10,7 @@ import numpy as np
 import json
 from time import time
 from .basic import Timer
+from .utils import APPENDED_STEP_DATA_NAME, APPENDED_SUMMARY_NAME
 
 START_TIME = "START_TIME"
 STOP_TIME = "STOP_TIME"
@@ -40,6 +41,7 @@ class TimeBenchmarker:
         self.step_dict: Dict[str, list] = defaultdict(list)
 
         self.started = False
+        self.crono_counter = 0
 
     def enable(self) -> None:
         """
@@ -70,6 +72,7 @@ class TimeBenchmarker:
         """
         if self._enable:
             self.gstop()
+            self.crono_counter = 0
             self.step_dict = defaultdict(list)
             self.step_dict[START_TIME] = time()
             self.start()
@@ -83,7 +86,9 @@ class TimeBenchmarker:
         if self._enable:
             if self.started:
                 if "GLOBAL" not in self.step_dict.keys():
-                    self.step_dict["GLOBAL"] = [self.global_timer.ttoc()]
+                    self.step_dict["GLOBAL"] = [
+                        {"time": self.global_timer.ttoc(), "crono_counter": self.crono_counter}
+                    ]
                 self.step_dict[STOP_TIME] = time()
                 self.step_dict_list.append(self.step_dict)
                 self.started = False
@@ -96,7 +101,10 @@ class TimeBenchmarker:
             topic (str, optional): The name of the step being timed. Defaults to an empty string.
         """
         if self._enable:
-            self.step_dict[topic].append(self.step_timer.ttoc())
+            self.step_dict[topic].append(
+                {"time": self.step_timer.ttoc(), "crono_counter": self.crono_counter}
+            )
+            self.crono_counter += 1
 
     def save_data(self, file):
         TimerSaver(self, file).save_data()
@@ -131,7 +139,7 @@ class TimerSaver:
             df_means (Dict[str, float]): A dictionary containing the mean times for each step.
         """
         self.summarize_data()
-        with open(self.file + "_STEP_DICT_SUMMARY.json", "w") as jsonfile:
+        with open(self.file + f"{APPENDED_SUMMARY_NAME}.json", "w") as jsonfile:
             json.dump(self.df_means, jsonfile, indent=4)
 
     def save_json(self) -> None:
@@ -140,7 +148,7 @@ class TimerSaver:
         """
         final_format = self.format_json()
 
-        with open(self.file + "_STEP_DICT_DATA.json", "w") as jsonfile:
+        with open(self.file + f"{APPENDED_STEP_DATA_NAME}.json", "w") as jsonfile:
             json.dump(final_format, jsonfile, indent=4)
 
     def format_json(self):
@@ -151,7 +159,7 @@ class TimerSaver:
             for key in working_keys:
                 if key in SPECIAL_NAMES:
                     continue
-                formated_step_dict["absolutes"][key] = sum(step_dict[key])
+                formated_step_dict["absolutes"][key] = sum([i['time'] for i in step_dict[key]])
                 formated_step_dict["individual_calls"][key] = step_dict[key]
             formated_step_dict["info"]["STEP_NUMBER"] = n
             formated_step_dict["info"][START_TIME] = step_dict[START_TIME]
@@ -331,7 +339,7 @@ def summurize(working_list, percentile=75, filter_below=0):
             if step_name in SPECIAL_NAMES:
                 continue
             if isinstance(step_dict[step_name], list):
-                series[step_name][step_number] = sum(step_dict[step_name])
+                series[step_name][step_number] = sum([i["time"] for i in step_dict[step_name]])
 
     df_means = {}
     for step_name in series.keys():
