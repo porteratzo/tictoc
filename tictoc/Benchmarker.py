@@ -60,11 +60,13 @@ class Benchmarker:
         """
         self.enabled = False
 
-    def enable_memory_tracking(self) -> None:
+    def enable_memory_tracking(self,  per_step=False) -> None:
         """
         Enables memory tracking within the benchmark.
         """
         self.memory_benchmaker.enable()
+        if per_step:
+            self.memory_benchmaker.enable_memory_tracking_in_step()
         self.register_memory_timings = True
 
     def start(self) -> None:
@@ -108,7 +110,7 @@ class Benchmarker:
                     if len(self.time_benchmaker.step_dict_list) % self.save_on_gstop == 0:
                         self.save_data()
 
-    def step(self, topic: str = "") -> None:
+    def step(self, topic: str = "", memory_extra=None, time_extra=None) -> None:
         """
         Tracks time spent on a specific step within the current benchmark.
 
@@ -116,8 +118,8 @@ class Benchmarker:
             topic (str, optional): The name of the step being timed. Defaults to an empty string.
         """
         if self.enabled:
-            self.time_benchmaker.step(topic)
-            self.memory_benchmaker.step(topic)
+            self.time_benchmaker.step(topic, extra=time_extra)
+            self.memory_benchmaker.step(topic, extra=memory_extra)
             if self.register_memory_timings:
                 self.time_benchmaker.step(topic + "_memory")
 

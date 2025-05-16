@@ -11,11 +11,9 @@ def demo_bench_dict_usage():
     bench = bench_dict["test"]
     bench.enable_memory_tracking()
     bench.memory_benchmaker.enable_cuda_memory_tracking()
-    bench.enable_memory_tracking()
     bench.set_save_on_gstop(3)
-    #bench.set_save_on_step()
 
-    my_list = [i for i in range(1000000)]
+    my_list = [i for i in range(500_000 + int(random() * 500_000))]
     for i in tqdm(range(8)):
         bench.gstep()
         my_list = my_list * 2
@@ -23,7 +21,7 @@ def demo_bench_dict_usage():
             bench.gstop()
             continue
         if i == 3:
-            my_list = [i for i in range(1000000)]
+            my_list = [i for i in range(500_000 + int(random() * 500_000))]
             new_list = my_list * 2
             if TICTOC_CUDA_AVAILABLE:
                 torch_tensor2 = torch.tensor(new_list)
@@ -32,12 +30,14 @@ def demo_bench_dict_usage():
             new_list = new_list * 2
 
         if i == 6:
-            new_list = [i for i in range(10_000_000)]
+            new_list = [i for i in range(5_000_000 + int(random() * 5_000_000))]
             if TICTOC_CUDA_AVAILABLE:
                 torch_tensor2 = torch_tensor2.to("cpu")
 
         if i == 1:
-            np_array = np.random.random([10_000, 100_00])
+            np_array = np.random.random(
+                [5_000 + int(random() * 5_000), 5_000 + int(random() * 5_000)]
+            )
             if TICTOC_CUDA_AVAILABLE:
                 torch_tensor = torch.tensor(np_array)
                 torch_tensor = torch_tensor.to("cuda")

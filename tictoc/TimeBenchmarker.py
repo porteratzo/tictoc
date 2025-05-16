@@ -10,7 +10,7 @@ import numpy as np
 import json
 from time import time
 from .basic import Timer
-from .utils import APPENDED_STEP_DATA_NAME, APPENDED_SUMMARY_NAME
+from .utils import APPENDED_STEP_DATA_NAME, APPENDED_SUMMARY_NAME, filter_no_change, find_clusters
 
 START_TIME = "START_TIME"
 STOP_TIME = "STOP_TIME"
@@ -93,7 +93,7 @@ class TimeBenchmarker:
                 self.step_dict_list.append(self.step_dict)
                 self.started = False
 
-    def step(self, topic: str = "") -> None:
+    def step(self, topic: str = "", extra=None) -> None:
         """
         Tracks time spent on a specific step within the current benchmark.
 
@@ -102,7 +102,7 @@ class TimeBenchmarker:
         """
         if self._enable:
             self.step_dict[topic].append(
-                {"time": self.step_timer.ttoc(), "crono_counter": self.crono_counter}
+                {"time": self.step_timer.ttoc(), "crono_counter": self.crono_counter, 'extra':extra}
             )
             self.crono_counter += 1
 
@@ -159,7 +159,7 @@ class TimerSaver:
             for key in working_keys:
                 if key in SPECIAL_NAMES:
                     continue
-                formated_step_dict["absolutes"][key] = sum([i['time'] for i in step_dict[key]])
+                formated_step_dict["absolutes"][key] = sum([i["time"] for i in step_dict[key]])
                 formated_step_dict["individual_calls"][key] = step_dict[key]
             formated_step_dict["info"]["STEP_NUMBER"] = n
             formated_step_dict["info"][START_TIME] = step_dict[START_TIME]
@@ -173,7 +173,7 @@ class TimePlotter:
         self.folder_path = folder_path
         self.series = defaultdict(dict)
 
-    def make_bars(self, summary_data, file_topic="") -> None:
+    def make_bars(self, summary_data, label="", filter_val=0, figsize=(18, 6)) -> None:
         """
         Creates bar chart visualizations of the benchmark results with two subplots:
         one for the means and another for the quantile-filtered means.
@@ -185,28 +185,35 @@ class TimePlotter:
             return (y - np.min(y)) / (np.max(y) - np.min(y))
 
         means = [v["mean"] for k, v in summary_data.items() if k != "GLOBAL"]
+
         if len(means) == 0:
             return
+
+        if filter_val > 0:
+            higher_bound = max(means) * filter_val
+            summary_data = {k: v for k, v in summary_data.items() if v["mean"] > higher_bound}
+            means = [v["mean"] for k, v in summary_data.items() if k != "GLOBAL"]
+
         quantile_filtered_means = [
             v["quantile_filtered"] for k, v in summary_data.items() if k != "GLOBAL"
         ]
         quantile_filtered_means = np.nan_to_num(quantile_filtered_means, nan=0).tolist()
         step_names = list(summary_data.keys())
 
-        fig, axes = plt.subplots(1, 2, figsize=(18, 6))
-        fig.suptitle(os.path.basename(file_topic) + "_bar")
+        fig, axes = plt.subplots(1, 2, figsize=figsize)
+        fig.suptitle(os.path.basename(label) + "_bar")
         mymap = plt.get_cmap("jet")
 
         # Plot for means
         axes[0].set_title("Means")
 
         bar_container_means = axes[0].bar(
-            np.arange(len(means) + 1),
+            np.arange(len(means) + (1 if "GLOBAL" in summary_data else 0)),
             means + [summary_data["GLOBAL"]["mean"]] if "GLOBAL" in summary_data else means,
             color=np.vstack([mymap(rescale(means)), [0, 0, 0, 1]]),
         )
         axes[0].set_xticks(np.arange(len(step_names)))
-        axes[0].set_xticklabels(step_names, rotation=45, ha="right")
+        axes[0].set_xticklabels(step_names, rotation=90, ha="right")
         label_bar_heights(bar_container_means, axes[0])
 
         # Plot for quantile-filtered means
@@ -229,21 +236,24 @@ class TimePlotter:
             ),
         )
         axes[1].set_xticks(np.arange(len(step_names)))
-        axes[1].set_xticklabels(step_names, rotation=45, ha="right")
+        axes[1].set_xticklabels(step_names, rotation=90, ha="right")
         label_bar_heights(bar_container_filtered, axes[1])
 
         plt.tight_layout(rect=[0, 0, 1, 0.95])
-        plt.savefig(self.folder_path + "/" + file_topic + "_STEP_DICT_BAR.png", dpi=200)
 
     def plot_data(
-        self, absolutes_data, topic="", smooth: float = None, percentile=75, max_mult=4
+        self,
+        absolutes_data,
+        label="",
+        linestyle=None,
+        smooth: float = None,
+        percentile=75,
+        max_mult=4,
     ) -> None:
         """
         Generates a time series plot of benchmark results, highlighting outliers and missing data.
         """
         seriesDF = absolutes_data
-        plt.figure(figsize=(18, 6))
-        plt.title(topic)
         if len(seriesDF) == 0:
             return
         max_length = seriesDF.shape[0]
@@ -271,7 +281,9 @@ class TimePlotter:
             if smooth is not None:
                 Y_no_outliers = gaussian_filter1d(Y_no_outliers, smooth)
 
-            (line1,) = plt.plot(X, Y_no_outliers, label=step_name)
+            (line1,) = plt.plot(
+                X, Y_no_outliers, label=label + ":" + step_name, linestyle=linestyle
+            )
 
             plt.plot(
                 X[upper_bound],
@@ -279,7 +291,7 @@ class TimePlotter:
                 color=line1.get_color(),
                 marker=r"$\uparrow$",
                 markersize=10,
-                linestyle="",
+                linestyle=linestyle,
                 label="_nolegend_",
             )
             for k, (i, j) in enumerate(zip(X[upper_bound], Y_no_outliers[upper_bound])):
@@ -292,14 +304,19 @@ class TimePlotter:
                 color=line1.get_color(),
                 marker="o",
                 label="_nolegend_",
-                linestyle="",
+                linestyle=linestyle,
                 markersize=(len(seriesDF) - n - 1) * 4 + 4,
             )
         plt.tight_layout()
-        plt.legend()
         custom_legend_elements = [
             Line2D(
-                [0], [0], marker="x", color="b", markerfacecolor="k", markersize=8, label="Outlier"
+                [0],
+                [0],
+                marker=r"$\uparrow$",
+                color="b",
+                markerfacecolor="k",
+                markersize=8,
+                label="Outlier",
             ),
             Line2D(
                 [0], [0], marker="o", color="b", markerfacecolor="k", markersize=8, label="No Data"
@@ -309,7 +326,42 @@ class TimePlotter:
         # Add the legend with both plot entries and custom entries
         plt.legend(handles=plt.gca().get_legend_handles_labels()[0] + custom_legend_elements)
 
-        plt.savefig(self.folder_path + "/" + topic + "_STEP_DICT_TIMELINE.png", dpi=200)
+    def crono_plot(self, call_data, label=""):
+        series = []
+        filter_no_change_val = None
+        cluster = 5
+        cluster_filter = 0.05
+        for step_number, step_dict in call_data.iterrows():
+            crono_series = {}
+            for step_name in step_dict.keys():
+                if isinstance(step_dict[step_name], list):
+                    for record in step_dict[step_name]:
+                        crono_series[record["crono_counter"]] = {
+                            "step_name": step_name,
+                            "step_number": step_number,
+                            "total": record["time"],
+                        }
+            ordered_crono = [crono_series[n] for n in sorted(crono_series.keys())]
+            if filter_no_change_val is not None:
+                ordered_crono = filter_no_change(filter_no_change_val, ordered_crono)
+
+            if cluster > 0:
+                ordered_crono = find_clusters(ordered_crono, cluster, cluster_filter)
+
+            series.extend(ordered_crono)
+
+        total_times = [val["total"] for val in series]
+        names = [f'{val["step_number"]}_{val["step_name"]}' for val in series]
+        x_names = np.arange(len(names))
+
+        plt.plot(x_names, total_times, label=label)
+
+        plt.xticks(x_names, names, rotation=90)
+        plt.ylabel("time (s)")
+        plt.xlabel("Step")
+        plt.tight_layout()
+        plt.legend()
+        plt.grid(True)
 
 
 def label_bar_heights(bar_container: BarContainer, axis) -> None:

@@ -9,8 +9,9 @@ import psutil
 import gc
 import sys
 from time import time
+import threading
 from .TimeBenchmarker import START_TIME, STOP_TIME, SPECIAL_NAMES
-from .utils import APPENDED_MEMORY_NAME
+from .utils import APPENDED_MEMORY_NAME, find_clusters, filter_no_change
 
 try:
     import torch
@@ -49,12 +50,18 @@ class MemoryBenchmarker:
         self.top_n = top_n  # Number of top memory-consuming objects to track
         self.track_cuda_memory = False  # Enable/disable CUDA memory tracking
         self.crono_counter = 0
+        self.track_max_memory = False
 
     def enable_memory_tracking_in_step(self) -> None:
         """
         Enables memory usage tracking specifically for the step method.
         """
         self.track_memory_in_step = True
+        
+    def enable_max_memory(self):
+        self.track_max_memory = True
+        self.MaxMemoryMonitor = MaxMemoryMonitor()
+        self.MaxMemoryMonitor.start()
 
     def set_top_n(self, top_n: int) -> None:
         """
@@ -105,6 +112,8 @@ class MemoryBenchmarker:
             self.crono_counter = 0
             self.save_stats("gstep")
             self.start()
+            if self.track_max_memory:
+                self.MaxMemoryMonitor.step()
 
     def gstop(self) -> None:
         """
@@ -118,7 +127,7 @@ class MemoryBenchmarker:
                 self.save_stats("gstop")
                 self.memory_usage_list.append(self.memory_usage)
 
-    def step(self, topic: str = "") -> None:
+    def step(self, topic: str = "", extra=None) -> None:
         """
         Tracks time spent on a specific step within the current benchmark.
 
@@ -128,17 +137,20 @@ class MemoryBenchmarker:
         if self._enable:
             if self.track_memory_in_step:  # Check both flags
                 gc.collect()
-                self.save_stats(topic)
+                self.save_stats(topic, extra=extra)
 
-    def save_stats(self, topic):
+    def save_stats(self, topic, extra=None):
         top_memory_objects = get_top_memory_objects(self.top_n)
         cuda_memory_usage = self.get_cuda_memory_usage() if self.track_cuda_memory else None
+        max_used = self.MaxMemoryMonitor.step() if self.track_max_memory else None
         self.memory_usage[topic].append(
             {
                 "total memory usage": psutil.Process().memory_info().rss,
                 "cuda memory usage": cuda_memory_usage,
                 "top_memory_objects": top_memory_objects,
                 "crono_counter": self.crono_counter,
+                "extra": extra,
+                'max memory usage': max_used
             }
         )
         self.crono_counter += 1
@@ -220,13 +232,20 @@ class MemoryPlotter:
         self.folder_path = folder_path
 
     def plot_data(
-        self, memory_data, title="", filter_no_change=None, cluster=3, cluster_filter=0.05
+        self,
+        memory_data,
+        label="",
+        filter_no_change_val=None,
+        cluster=3,
+        cluster_filter=0.05,
+        plot_extra=None,
     ) -> None:
         """
         Generates a time series plot of benchmark results, highlighting outliers and missing data.
         """
 
         series = []
+        totally_rejected = []
         for step_number, step_dict in enumerate(memory_data):
             crono_series = {}
             for step_name in step_dict.keys():
@@ -237,78 +256,27 @@ class MemoryPlotter:
                         "total": record["total memory usage"],
                         "top_objects": [i[1] for i in record["top_memory_objects"]],
                     }
+                    if plot_extra is not None:
+                        if not isinstance(plot_extra, list):
+                            plot_extra = [plot_extra]
+                        for pe in plot_extra:
+                            val = record["extra"].get(pe, None) if record["extra"] is not None else None
+                            crono_series[record["crono_counter"]].update(
+                                {pe: val}
+                            )
             ordered_crono = [crono_series[n] for n in sorted(crono_series.keys())]
-            if filter_no_change is not None:
-                if not isinstance(filter_no_change, float):
-                    filter_no_change = 0.05
-                memory_vals = [i["total"] for i in ordered_crono]
-                max_memory_usage = max(memory_vals)
-                min_memory_usage = min(memory_vals)
-                memory_threshold = (max_memory_usage - min_memory_usage) * filter_no_change
-                new_list = [ordered_crono[0]]
-                current_memory = ordered_crono[0]["total"]
-                for i in ordered_crono[1:]:
-                    if abs(i["total"] - current_memory) > memory_threshold:
-                        new_list.append(i)
-                        current_memory = i["total"]
-                ordered_crono = new_list
-
-            def find_clusters(ordered_crono, max_length):
-                clusters = []
-                new_crono = []
-                i = 0
-                max_length = 2
-
-                sequence = [i["step_name"] for i in ordered_crono]
-                memory_vals = [i["total"] for i in ordered_crono]
-                max_memory_usage = max(memory_vals)
-                min_memory_usage = min(memory_vals)
-                memory_threshold = (max_memory_usage - min_memory_usage) * cluster_filter
-                while i < len(sequence):
-                    # Initialize the current cluster
-                    current_cluster = sequence[i]
-                    count = 1
-
-                    # Check for repeating sequences up to max_length
-                    current_memory = ordered_crono[i]["total"]
-                    memory_spike = False
-                    match_found = False
-                    for j in range(0, max_length):
-                        match_sequence = sequence[i : i + j + 1]
-                        while (
-                            i + j < len(sequence)
-                            and match_sequence == sequence[i + j + 1 : i + j + 2 + j]
-                            and not memory_spike
-                        ):
-                            for timing in ordered_crono[i : i + j + 2 + j]:
-                                if abs(timing["total"] - current_memory) > memory_threshold:
-                                    memory_spike = True
-                            if not memory_spike:
-                                current_cluster = sequence[i : i + j + 1]
-                                count += 1
-                                i += j + 1
-                                match_found = True
-                    if match_found:
-                        i += 1
-
-                    # Add the cluster to the list
-                    clusters.append((current_cluster, count))
-                    partial_crono = ordered_crono[i].copy()
-                    if count > 1:
-                        partial_crono['step_name'] = ' || '.join(current_cluster) + ' x' + str(count)
-                    new_crono.append(partial_crono)
-
-                    # Move to the next character
-                    i += 1
-
-                return new_crono
+            if filter_no_change_val is not None:
+                ordered_crono, rejected = filter_no_change(filter_no_change_val, ordered_crono)
+                not_rejected = [i["step_name"] for i in ordered_crono]
+                totally_rejected = [
+                    i["step_name"] for i in rejected if i["step_name"] not in not_rejected
+                ]
 
             if cluster > 0:
-                ordered_crono = find_clusters(ordered_crono, cluster)
+                ordered_crono = find_clusters(ordered_crono, cluster, cluster_filter)
             series.extend(ordered_crono)
 
         # plt.figure(figsize=(18, 6))
-        plt.title(title)
         if len(series) == 0:
             return
         total_mem = [val["total"] for val in series]
@@ -320,7 +288,17 @@ class MemoryPlotter:
         total_mem_mb = [mem / (1024**2) for mem in total_mem]
         top_objects_mb = top_objects / (1024**2)
 
-        plt.plot(x_names, total_mem_mb, label="Total Memory Usage (MB)")
+        plt.plot(x_names, total_mem_mb, label="Total Memory Usage (MB) " + label)
+
+        if plot_extra is not None:
+            for pe in plot_extra:
+                extra_total_mem = [val[pe] for val in series]
+                extra_x_names = [i for i in x_names if extra_total_mem[i] is not None]
+                plt.plot(
+                    extra_x_names,
+                    extra_total_mem,
+                    label="Total Memory Usage (MB) " + label + " " + pe,
+                )
 
         for n, name in enumerate(more_names):
             plt.plot(x_names, top_objects_mb[:, n], label=f"{name} (MB)")
@@ -331,7 +309,7 @@ class MemoryPlotter:
         plt.tight_layout()
         plt.legend()
         plt.grid(True)
-        plt.savefig(f"_{title}_MEMORY_TIMELINE.png", dpi=200)
+        return totally_rejected
 
     def plot_cuda_data(self, memory_data) -> None:
         """
@@ -419,6 +397,44 @@ def get_top_memory_objects(top_n: int = 5) -> List[Tuple[str, int]]:
                 top_memory_objects[-1] = (obj_type, obj_size)
                 top_memory_objects.sort(key=lambda x: x[1], reverse=True)
     return top_memory_objects
+
+
+class MaxMemoryMonitor:
+    def __init__(self):
+        self.max_memory_usage = 0
+        self.running = False
+        self.lock = threading.Lock()
+        self.thread = threading.Thread(target=self._monitor_memory)
+
+    def start(self):
+        """Start the memory monitoring thread."""
+        self.running = True
+        self.thread.start()
+
+    def stop(self):
+        """Stop the memory monitoring thread."""
+        self.running = False
+        self.thread.join()
+
+    def _monitor_memory(self):
+        """Monitor memory usage in a separate thread."""
+        while self.running:
+            # Get current memory usage
+            current_memory_usage = psutil.Process().memory_info().rss
+
+            # Update max memory usage
+            with self.lock:
+                self.max_memory_usage = max(self.max_memory_usage, current_memory_usage)
+
+            # Sleep for 0.1 seconds
+            time.sleep(0.1)
+
+    def step(self):
+        """Reset and return the max memory usage since the last step."""
+        with self.lock:
+            max_usage = self.max_memory_usage
+            self.max_memory_usage = 0
+        return max_usage
 
 
 def _getr(slist, olist, seen):
