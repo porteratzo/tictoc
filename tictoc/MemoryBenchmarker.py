@@ -8,7 +8,7 @@ import json
 import psutil
 import gc
 import sys
-from time import time
+from time import time, sleep
 import threading
 from .TimeBenchmarker import START_TIME, STOP_TIME, SPECIAL_NAMES
 from .utils import APPENDED_MEMORY_NAME, find_clusters, filter_no_change
@@ -57,11 +57,10 @@ class MemoryBenchmarker:
         Enables memory usage tracking specifically for the step method.
         """
         self.track_memory_in_step = True
-        
-    def enable_max_memory(self):
+
+    def enable_max_memory(self, poll_time=0.1):
         self.track_max_memory = True
-        self.MaxMemoryMonitor = MaxMemoryMonitor()
-        self.MaxMemoryMonitor.start()
+        self.MaxMemoryMonitor = MaxMemoryMonitor(poll_time)
 
     def set_top_n(self, top_n: int) -> None:
         """
@@ -113,7 +112,7 @@ class MemoryBenchmarker:
             self.save_stats("gstep")
             self.start()
             if self.track_max_memory:
-                self.MaxMemoryMonitor.step()
+                self.MaxMemoryMonitor.start()
 
     def gstop(self) -> None:
         """
@@ -126,6 +125,8 @@ class MemoryBenchmarker:
                 self.started = False
                 self.save_stats("gstop")
                 self.memory_usage_list.append(self.memory_usage)
+                if self.track_max_memory:
+                    self.MaxMemoryMonitor.stop()
 
     def step(self, topic: str = "", extra=None) -> None:
         """
@@ -150,7 +151,7 @@ class MemoryBenchmarker:
                 "top_memory_objects": top_memory_objects,
                 "crono_counter": self.crono_counter,
                 "extra": extra,
-                'max memory usage': max_used
+                "max memory usage": max_used,
             }
         )
         self.crono_counter += 1
@@ -239,6 +240,8 @@ class MemoryPlotter:
         cluster=3,
         cluster_filter=0.05,
         plot_extra=None,
+        highlight=[],
+        highlight_color="r",
     ) -> None:
         """
         Generates a time series plot of benchmark results, highlighting outliers and missing data.
@@ -254,16 +257,19 @@ class MemoryPlotter:
                         "step_name": step_name,
                         "step_number": step_number,
                         "total": record["total memory usage"],
+                        "max": record["max memory usage"],
                         "top_objects": [i[1] for i in record["top_memory_objects"]],
                     }
                     if plot_extra is not None:
                         if not isinstance(plot_extra, list):
                             plot_extra = [plot_extra]
                         for pe in plot_extra:
-                            val = record["extra"].get(pe, None) if record["extra"] is not None else None
-                            crono_series[record["crono_counter"]].update(
-                                {pe: val}
+                            val = (
+                                record["extra"].get(pe, None)
+                                if record["extra"] is not None
+                                else None
                             )
+                            crono_series[record["crono_counter"]].update({pe: val})
             ordered_crono = [crono_series[n] for n in sorted(crono_series.keys())]
             if filter_no_change_val is not None:
                 ordered_crono, rejected = filter_no_change(filter_no_change_val, ordered_crono)
@@ -280,20 +286,32 @@ class MemoryPlotter:
         if len(series) == 0:
             return
         total_mem = [val["total"] for val in series]
+
         top_objects = np.array([val["top_objects"] for val in series])
         names = [f'{val["step_number"]}_{val["step_name"]}' for val in series]
         x_names = np.arange(len(names))
         more_names = ["object_" + str(i) for i in range(len(top_objects[0]))]
 
         total_mem_mb = [mem / (1024**2) for mem in total_mem]
+
         top_objects_mb = top_objects / (1024**2)
 
         plt.plot(x_names, total_mem_mb, label="Total Memory Usage (MB) " + label)
+
+        max_mem = [val["max"] for val in series]
+        if any([i is not None for i in max_mem]):
+            max_mem_mb = [mem / (1024**2) for mem in max_mem]
+            max_x_names = [i for i in x_names if (max_mem_mb[i] is not None) & (max_mem_mb[i] > 0)]
+
+            max_mem_mb = [i for i in max_mem_mb if (i is not None) & (i > 0)]
+            plt.plot(max_x_names, max_mem_mb, label="Max Memory Usage (MB) " + label, marker="o")
 
         if plot_extra is not None:
             for pe in plot_extra:
                 extra_total_mem = [val[pe] for val in series]
                 extra_x_names = [i for i in x_names if extra_total_mem[i] is not None]
+                extra_total_mem = [i for i in extra_total_mem if i is not None]
+                extra_total_mem = [mem / (1024**2) for mem in extra_total_mem]
                 plt.plot(
                     extra_x_names,
                     extra_total_mem,
@@ -302,6 +320,23 @@ class MemoryPlotter:
 
         for n, name in enumerate(more_names):
             plt.plot(x_names, top_objects_mb[:, n], label=f"{name} (MB)")
+
+        max_height = max(total_mem_mb)
+        highlight_label_added = False
+        if len(highlight) > 0:
+            for x_name, name in zip(x_names, names):
+                if "_".join(name.split("_")[1:]) in highlight:
+                    rect = plt.Rectangle(
+                        (x_name - 0.5, 0),
+                        1.0,
+                        max_height * 1.05,
+                        linewidth=2,
+                        edgecolor=highlight_color,
+                        facecolor="none",
+                        label=label if not highlight_label_added else "__nolegend__",
+                    )
+                    plt.gca().add_patch(rect)
+                    highlight_label_added = True
 
         plt.xticks(x_names, names, rotation=90)
         plt.ylabel("Memory Usage (MB)")
@@ -400,21 +435,25 @@ def get_top_memory_objects(top_n: int = 5) -> List[Tuple[str, int]]:
 
 
 class MaxMemoryMonitor:
-    def __init__(self):
+    def __init__(self, poll_time=0.1):
         self.max_memory_usage = 0
         self.running = False
         self.lock = threading.Lock()
-        self.thread = threading.Thread(target=self._monitor_memory)
+        self.poll_time = poll_time
+        self.thread = None
 
     def start(self):
         """Start the memory monitoring thread."""
         self.running = True
+        self.max_memory_usage = 0
+        self.thread = threading.Thread(target=self._monitor_memory)
         self.thread.start()
 
     def stop(self):
         """Stop the memory monitoring thread."""
         self.running = False
-        self.thread.join()
+        if self.thread is not None:
+            self.thread.join()
 
     def _monitor_memory(self):
         """Monitor memory usage in a separate thread."""
@@ -427,7 +466,7 @@ class MaxMemoryMonitor:
                 self.max_memory_usage = max(self.max_memory_usage, current_memory_usage)
 
             # Sleep for 0.1 seconds
-            time.sleep(0.1)
+            sleep(self.poll_time)
 
     def step(self):
         """Reset and return the max memory usage since the last step."""

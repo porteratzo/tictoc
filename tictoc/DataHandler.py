@@ -3,6 +3,8 @@ from tictoc.MemoryBenchmarker import MemoryPlotter
 from typing import Dict
 import matplotlib.pyplot as plt
 
+COLORS = ["b", "g", "r", "c", "m", "y", "k", "w"]
+
 
 class DataHandler:
     def __init__(self, record_dict: Dict[str, Dict], record_path=""):
@@ -13,13 +15,16 @@ class DataHandler:
     def plot_memory_usage(self, record_name="global", filter_no_change_val=None, **kwargs):
         plt.title(record_name)
         rejected = []
-        for name in self.record_dict.keys():
-            rejected.append(self.memory_plotter.plot_data(
-                self.record_dict[name]["memory"][record_name],
-                filter_no_change_val=filter_no_change_val,
-                label=name,
-                **kwargs
-            ))
+        for n, name in enumerate(self.record_dict.keys()):
+            rejected.append(
+                self.memory_plotter.plot_data(
+                    self.record_dict[name]["memory"][record_name],
+                    filter_no_change_val=filter_no_change_val,
+                    label=name,
+                    highlight_color=COLORS[n],
+                    **kwargs,
+                )
+            )
         return rejected
 
     def make_bars(self, record_name="global", **kwargs):
