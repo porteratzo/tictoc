@@ -121,7 +121,7 @@ class Benchmarker:
             self.time_benchmaker.step(topic, extra=time_extra)
             self.memory_benchmaker.step(topic, extra=memory_extra)
             if self.register_memory_timings:
-                self.time_benchmaker.step(topic + "_memory")
+                self.time_benchmaker.step(topic + "_MEMORY_STEP")
 
             if self.save_on_step:
                 self.save_data()

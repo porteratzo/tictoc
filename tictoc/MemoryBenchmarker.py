@@ -12,6 +12,7 @@ from time import time, sleep
 import threading
 from .TimeBenchmarker import START_TIME, STOP_TIME, SPECIAL_NAMES
 from .utils import APPENDED_MEMORY_NAME, find_clusters, filter_no_change
+from .basic import CountDownClock
 
 try:
     import torch
@@ -40,7 +41,7 @@ class MemoryBenchmarker:
         started (bool): Flag indicating if a benchmark has been started.
     """
 
-    def __init__(self, top_n: int = 0) -> None:
+    def __init__(self, top_n: int = 0, gc_countdown_time=0.1) -> None:
         self._enable = True
         self.memory_usage_list: List[Dict[str, Union[int, str]]] = []
         self.memory_usage: Dict[str, list] = defaultdict(list)
@@ -51,6 +52,8 @@ class MemoryBenchmarker:
         self.track_cuda_memory = False  # Enable/disable CUDA memory tracking
         self.crono_counter = 0
         self.track_max_memory = False
+
+        self.gc_countdown = CountDownClock(gc_countdown_time)
 
     def enable_memory_tracking_in_step(self) -> None:
         """
@@ -67,6 +70,12 @@ class MemoryBenchmarker:
         Sets the number of top memory-consuming objects to track.
         """
         self.top_n = top_n
+
+    def set_gc_time(self, set_gc_time: float) -> None:
+        """
+        Sets the number of top memory-consuming objects to track.
+        """
+        self.gc_countdown.set_count_down(set_gc_time)
 
     def enable(self) -> None:
         """
@@ -135,10 +144,11 @@ class MemoryBenchmarker:
         Args:
             topic (str, optional): The name of the step being timed. Defaults to an empty string.
         """
-        if self._enable:
-            if self.track_memory_in_step:  # Check both flags
-                gc.collect()
-                self.save_stats(topic, extra=extra)
+        if self._enable and self.track_memory_in_step:  # Check both flags
+                if self.gc_countdown.completed():
+                    gc.collect()
+                    self.save_stats(topic, extra=extra)
+                    self.gc_countdown.reset()
 
     def save_stats(self, topic, extra=None):
         top_memory_objects = get_top_memory_objects(self.top_n)
