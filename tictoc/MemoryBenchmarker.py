@@ -145,10 +145,10 @@ class MemoryBenchmarker:
             topic (str, optional): The name of the step being timed. Defaults to an empty string.
         """
         if self._enable and self.track_memory_in_step:  # Check both flags
-                if self.gc_countdown.completed():
-                    gc.collect()
-                    self.save_stats(topic, extra=extra)
-                    self.gc_countdown.reset()
+            if self.gc_countdown.completed():
+                gc.collect()
+                self.gc_countdown.reset()
+            self.save_stats(topic, extra=extra)
 
     def save_stats(self, topic, extra=None):
         top_memory_objects = get_top_memory_objects(self.top_n)
