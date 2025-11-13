@@ -13,6 +13,8 @@ setup(
     install_requires=[
         "matplotlib",
         "numpy",
+        "scipy",
+        "psutil",
     ],
     extras_require={},
     classifiers=[
