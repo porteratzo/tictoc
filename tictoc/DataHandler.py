@@ -1,7 +1,9 @@
-from tictoc.TimeBenchmarker import TimePlotter
-from tictoc.MemoryBenchmarker import MemoryPlotter
 from typing import Dict
+
 import matplotlib.pyplot as plt
+
+from tictoc.MemoryBenchmarker import MemoryPlotter
+from tictoc.TimeBenchmarker import TimePlotter
 
 COLORS = ["b", "g", "r", "c", "m", "y", "k", "w"]
 
@@ -12,7 +14,9 @@ class DataHandler:
         self.memory_plotter = MemoryPlotter(record_path)
         self.record_dict = record_dict
 
-    def plot_memory_usage(self, record_name="global", filter_no_change_val=None, **kwargs):
+    def plot_memory_usage(
+        self, record_name="global", filter_no_change_val=None, **kwargs
+    ):
         plt.title(record_name)
         rejected = []
         for n, name in enumerate(self.record_dict.keys()):
@@ -46,4 +50,6 @@ class DataHandler:
     def plot_crono(self, record_name="global"):
         plt.title(record_name)
         for n, name in enumerate(self.record_dict.keys()):
-            self.time_plotter.crono_plot(self.record_dict[name]["calls"][record_name], label=name)
+            self.time_plotter.crono_plot(
+                self.record_dict[name]["calls"][record_name], label=name
+            )

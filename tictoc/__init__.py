@@ -1,17 +1,20 @@
-import os
 import logging
-from .GlobalBenchmarker import GlobalBenchmarker
+import os
+
+from .basic import CountDownClock, Timer
 from .Benchmarker import Benchmarker
-from .basic import Timer, CountDownClock
+from .GlobalBenchmarker import GlobalBenchmarker
 from .MemoryBenchmarker import TICTOC_CUDA_AVAILABLE
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 bench_dict = GlobalBenchmarker()
 benchmarker = Benchmarker("performance_benchmark/default")
 timer = Timer()
 
-TICTOC_TOGGLES = os.getenv("TICTOC_TOGGLES", "0"*8)
+TICTOC_TOGGLES = os.getenv("TICTOC_TOGGLES", "0" * 8)
 if TICTOC_TOGGLES is not None:
 
     def change_toggles(tictoc_toggles):
@@ -24,5 +27,5 @@ if TICTOC_TOGGLES is not None:
 
         return toggles
 
-    TICTOC_TOGGLES = change_toggles(int(TICTOC_TOGGLES,2))
+    TICTOC_TOGGLES = change_toggles(int(TICTOC_TOGGLES, 2))
     logging.info(f"Active toggles: {TICTOC_TOGGLES}")

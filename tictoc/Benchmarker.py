@@ -1,6 +1,7 @@
 import os
-from .TimeBenchmarker import TimeBenchmarker, TimerSaver
+
 from .MemoryBenchmarker import MemoryBenchmarker, MemorySaver
+from .TimeBenchmarker import TimeBenchmarker, TimerSaver
 
 
 class Benchmarker:
@@ -21,7 +22,10 @@ class Benchmarker:
     """
 
     def __init__(
-        self, file: str = "performance/base", save_on_gstop: int = 0, save_on_step: bool = False
+        self,
+        file: str = "performance/base",
+        save_on_gstop: int = 0,
+        save_on_step: bool = False,
     ) -> None:
         self.enabled = True
         self.time_benchmaker = TimeBenchmarker()
@@ -60,7 +64,7 @@ class Benchmarker:
         """
         self.enabled = False
 
-    def enable_memory_tracking(self,  per_step=False) -> None:
+    def enable_memory_tracking(self, per_step=False) -> None:
         """
         Enables memory tracking within the benchmark.
         """
@@ -107,7 +111,10 @@ class Benchmarker:
                 self.started = False
 
                 if self.save_on_gstop > 0:
-                    if len(self.time_benchmaker.step_dict_list) % self.save_on_gstop == 0:
+                    if (
+                        len(self.time_benchmaker.step_dict_list) % self.save_on_gstop
+                        == 0
+                    ):
                         self.save_data()
 
     def step(self, topic: str = "", memory_extra=None, time_extra=None) -> None:
