@@ -1,18 +1,19 @@
+import gc
+import json
+import os
+import sys
+import threading
 from collections import defaultdict
-from typing import List, Dict, Union, Tuple
+from time import sleep, time
+from typing import Dict, List, Tuple, Union
+
 import matplotlib.pyplot as plt
 import numpy as np
-import os
-
-import json
 import psutil
-import gc
-import sys
-from time import time, sleep
-import threading
-from .TimeBenchmarker import START_TIME, STOP_TIME, SPECIAL_NAMES
-from .utils import APPENDED_MEMORY_NAME, find_clusters, filter_no_change
+
 from .basic import CountDownClock
+from .TimeBenchmarker import SPECIAL_NAMES, START_TIME, STOP_TIME
+from .utils import APPENDED_MEMORY_NAME, filter_no_change, find_clusters
 
 try:
     import torch
@@ -47,7 +48,9 @@ class MemoryBenchmarker:
         self.memory_usage: Dict[str, list] = defaultdict(list)
 
         self.started = False
-        self.track_memory_in_step = False  # Enable/disable memory tracking in the step method
+        self.track_memory_in_step = (
+            False  # Enable/disable memory tracking in the step method
+        )
         self.top_n = top_n  # Number of top memory-consuming objects to track
         self.track_cuda_memory = False  # Enable/disable CUDA memory tracking
         self.crono_counter = 0
@@ -152,7 +155,9 @@ class MemoryBenchmarker:
 
     def save_stats(self, topic, extra=None):
         top_memory_objects = get_top_memory_objects(self.top_n)
-        cuda_memory_usage = self.get_cuda_memory_usage() if self.track_cuda_memory else None
+        cuda_memory_usage = (
+            self.get_cuda_memory_usage() if self.track_cuda_memory else None
+        )
         max_used = self.MaxMemoryMonitor.step() if self.track_max_memory else None
         self.memory_usage[topic].append(
             {
@@ -282,10 +287,14 @@ class MemoryPlotter:
                             crono_series[record["crono_counter"]].update({pe: val})
             ordered_crono = [crono_series[n] for n in sorted(crono_series.keys())]
             if filter_no_change_val is not None:
-                ordered_crono, rejected = filter_no_change(filter_no_change_val, ordered_crono)
+                ordered_crono, rejected = filter_no_change(
+                    filter_no_change_val, ordered_crono
+                )
                 not_rejected = [i["step_name"] for i in ordered_crono]
                 totally_rejected = [
-                    i["step_name"] for i in rejected if i["step_name"] not in not_rejected
+                    i["step_name"]
+                    for i in rejected
+                    if i["step_name"] not in not_rejected
                 ]
 
             if cluster > 0:
@@ -311,10 +320,17 @@ class MemoryPlotter:
         max_mem = [val["max"] for val in series]
         if any([i is not None for i in max_mem]):
             max_mem_mb = [mem / (1024**2) for mem in max_mem]
-            max_x_names = [i for i in x_names if (max_mem_mb[i] is not None) & (max_mem_mb[i] > 0)]
+            max_x_names = [
+                i for i in x_names if (max_mem_mb[i] is not None) & (max_mem_mb[i] > 0)
+            ]
 
             max_mem_mb = [i for i in max_mem_mb if (i is not None) & (i > 0)]
-            plt.plot(max_x_names, max_mem_mb, label="Max Memory Usage (MB) " + label, marker="o")
+            plt.plot(
+                max_x_names,
+                max_mem_mb,
+                label="Max Memory Usage (MB) " + label,
+                marker="o",
+            )
 
         if plot_extra is not None:
             for pe in plot_extra:
@@ -361,7 +377,11 @@ class MemoryPlotter:
         Generates a plot for CUDA memory usage metrics.
         """
         series = memory_data
-        if not any("cuda memory usage" in entry[key] for entry in series for key in entry.keys()):
+        if not any(
+            "cuda memory usage" in entry[key]
+            for entry in series
+            for key in entry.keys()
+        ):
             # Skip plotting if no CUDA data is available
             return
 
@@ -377,10 +397,18 @@ class MemoryPlotter:
                 if "cuda memory usage" in metrics and metrics["cuda memory usage"]:
                     step_names.append(f"{step_number}_{step_name}")
                     cuda_metrics = metrics["cuda memory usage"]
-                    allocated.append(cuda_metrics["allocated"] / (1024**2))  # Convert to MB
-                    reserved.append(cuda_metrics["reserved"] / (1024**2))  # Convert to MB
-                    max_allocated.append(cuda_metrics["max_allocated"] / (1024**2))  # Convert to MB
-                    max_reserved.append(cuda_metrics["max_reserved"] / (1024**2))  # Convert to MB
+                    allocated.append(
+                        cuda_metrics["allocated"] / (1024**2)
+                    )  # Convert to MB
+                    reserved.append(
+                        cuda_metrics["reserved"] / (1024**2)
+                    )  # Convert to MB
+                    max_allocated.append(
+                        cuda_metrics["max_allocated"] / (1024**2)
+                    )  # Convert to MB
+                    max_reserved.append(
+                        cuda_metrics["max_reserved"] / (1024**2)
+                    )  # Convert to MB
 
         # Plot CUDA metrics
         plt.figure(figsize=(18, 6))
@@ -427,7 +455,9 @@ def get_top_memory_objects(top_n: int = 5) -> List[Tuple[str, int]]:
                         obj_size += sys.getsizeof(item) * len(obj)
                     elif isinstance(obj, dict):
                         key, value = next(iter(obj.items()))
-                        obj_size += (sys.getsizeof(value) + sys.getsizeof(key)) * len(obj)
+                        obj_size += (sys.getsizeof(value) + sys.getsizeof(key)) * len(
+                            obj
+                        )
             except RuntimeError:
                 pass
             except ValueError:

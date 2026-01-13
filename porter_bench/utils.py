@@ -1,7 +1,8 @@
-import os
-from glob import glob
 import json
+import os
 from datetime import datetime
+from glob import glob
+
 import pandas as pd
 
 APPENDED_STEP_DATA_NAME = "_STEP_DICT_DATA"
@@ -16,7 +17,9 @@ def load_raw_stepdict_data(path):
     for col in glob(dir_path, recursive=True):
         with open(col, "r") as json_file:
             data = json.load(json_file)
-            base_name = os.path.basename(col).replace(APPENDED_STEP_DATA_NAME + ".json", "")
+            base_name = os.path.basename(col).replace(
+                APPENDED_STEP_DATA_NAME + ".json", ""
+            )
             data_dict[base_name] = data
     return data_dict
 
@@ -27,7 +30,9 @@ def load_raw_summary_data(record_path):
     for col in glob(dir_path, recursive=True):
         with open(col, "r") as json_file:
             data = json.load(json_file)
-            base_name = os.path.basename(col).replace(APPENDED_SUMMARY_NAME + ".json", "")
+            base_name = os.path.basename(col).replace(
+                APPENDED_SUMMARY_NAME + ".json", ""
+            )
             data_dict[base_name] = data
     return data_dict
 
@@ -36,7 +41,9 @@ def get_latest_record(path):
     files = glob(os.path.join(path, f"{APPENDED_DIR_NAME}", "*"))
     timestamp_format = "%H:%M-%d:%m:%Y"
     sorted_files = sorted(
-        files, key=lambda f: datetime.strptime(os.path.basename(f), timestamp_format), reverse=True
+        files,
+        key=lambda f: datetime.strptime(os.path.basename(f), timestamp_format),
+        reverse=True,
     )
     return sorted_files[0]
 
@@ -74,7 +81,9 @@ def load_raw_memory_data(path):
     for col in glob(dir_path, recursive=True):
         with open(col, "r") as json_file:
             data = json.load(json_file)
-            base_name = os.path.basename(col).replace(APPENDED_MEMORY_NAME + ".json", "")
+            base_name = os.path.basename(col).replace(
+                APPENDED_MEMORY_NAME + ".json", ""
+            )
             data_dict[base_name] = data
     return data_dict
 
@@ -82,7 +91,9 @@ def load_raw_memory_data(path):
 def get_data(step_dict_data):
     DF_dict = {}
     for benchmark_key in step_dict_data:
-        DF_dict[benchmark_key] = [step["data"] for step in step_dict_data[benchmark_key]]
+        DF_dict[benchmark_key] = [
+            step["data"] for step in step_dict_data[benchmark_key]
+        ]
     return DF_dict
 
 
@@ -145,7 +156,9 @@ def find_clusters(ordered_crono, max_length, cluster_filter):
         clusters.append((current_cluster, count))
         partial_crono = ordered_crono[i].copy()
         if count > 1:
-            partial_crono["step_name"] = " || ".join(current_cluster) + " x" + str(count)
+            partial_crono["step_name"] = (
+                " || ".join(current_cluster) + " x" + str(count)
+            )
         new_crono.append(partial_crono)
 
         # Move to the next character

@@ -1,5 +1,6 @@
 import os
-from typing import List, Dict, Optional, Union
+from typing import Dict, List, Optional, Union
+
 from .basic import get_timestamp
 from .Benchmarker import Benchmarker
 

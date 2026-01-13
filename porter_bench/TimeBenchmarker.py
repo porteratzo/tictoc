@@ -1,16 +1,22 @@
+import json
 import os
 from collections import defaultdict
-from typing import List, Dict
+from time import time
+from typing import Dict, List
+
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.container import BarContainer
 from matplotlib.lines import Line2D
 from scipy.ndimage import gaussian_filter1d
 
-import numpy as np
-import json
-from time import time
 from .basic import Timer
-from .utils import APPENDED_STEP_DATA_NAME, APPENDED_SUMMARY_NAME, filter_no_change, find_clusters
+from .utils import (
+    APPENDED_STEP_DATA_NAME,
+    APPENDED_SUMMARY_NAME,
+    filter_no_change,
+    find_clusters,
+)
 
 START_TIME = "START_TIME"
 STOP_TIME = "STOP_TIME"
@@ -87,7 +93,10 @@ class TimeBenchmarker:
             if self.started:
                 if "GLOBAL" not in self.step_dict.keys():
                     self.step_dict["GLOBAL"] = [
-                        {"time": self.global_timer.ttoc(), "crono_counter": self.crono_counter}
+                        {
+                            "time": self.global_timer.ttoc(),
+                            "crono_counter": self.crono_counter,
+                        }
                     ]
                 self.step_dict[STOP_TIME] = time()
                 self.step_dict_list.append(self.step_dict)
@@ -102,7 +111,11 @@ class TimeBenchmarker:
         """
         if self._enable:
             self.step_dict[topic].append(
-                {"time": self.step_timer.ttoc(), "crono_counter": self.crono_counter, 'extra':extra}
+                {
+                    "time": self.step_timer.ttoc(),
+                    "crono_counter": self.crono_counter,
+                    "extra": extra,
+                }
             )
             self.crono_counter += 1
 
@@ -111,7 +124,9 @@ class TimeBenchmarker:
 
 
 class TimerSaver:
-    def __init__(self, benchmarker: TimeBenchmarker, file: str = "performance/base") -> None:
+    def __init__(
+        self, benchmarker: TimeBenchmarker, file: str = "performance/base"
+    ) -> None:
         self.file = file
         self.folder = os.path.join(*file.split("/")[:-1])
         self.benchmarker = benchmarker
@@ -159,7 +174,9 @@ class TimerSaver:
             for key in working_keys:
                 if key in SPECIAL_NAMES:
                     continue
-                formated_step_dict["absolutes"][key] = sum([i["time"] for i in step_dict[key]])
+                formated_step_dict["absolutes"][key] = sum(
+                    [i["time"] for i in step_dict[key]]
+                )
                 formated_step_dict["individual_calls"][key] = step_dict[key]
             formated_step_dict["info"]["STEP_NUMBER"] = n
             formated_step_dict["info"][START_TIME] = step_dict[START_TIME]
@@ -191,7 +208,9 @@ class TimePlotter:
 
         if filter_val > 0:
             higher_bound = max(means) * filter_val
-            summary_data = {k: v for k, v in summary_data.items() if v["mean"] > higher_bound}
+            summary_data = {
+                k: v for k, v in summary_data.items() if v["mean"] > higher_bound
+            }
             means = [v["mean"] for k, v in summary_data.items() if k != "GLOBAL"]
 
         quantile_filtered_means = [
@@ -209,7 +228,11 @@ class TimePlotter:
 
         bar_container_means = axes[0].bar(
             np.arange(len(means) + (1 if "GLOBAL" in summary_data else 0)),
-            means + [summary_data["GLOBAL"]["mean"]] if "GLOBAL" in summary_data else means,
+            (
+                means + [summary_data["GLOBAL"]["mean"]]
+                if "GLOBAL" in summary_data
+                else means
+            ),
             color=np.vstack([mymap(rescale(means)), [0, 0, 0, 1]]),
         )
         axes[0].set_xticks(np.arange(len(step_names)))
@@ -319,12 +342,20 @@ class TimePlotter:
                 label="Outlier",
             ),
             Line2D(
-                [0], [0], marker="o", color="b", markerfacecolor="k", markersize=8, label="No Data"
+                [0],
+                [0],
+                marker="o",
+                color="b",
+                markerfacecolor="k",
+                markersize=8,
+                label="No Data",
             ),
         ]
 
         # Add the legend with both plot entries and custom entries
-        plt.legend(handles=plt.gca().get_legend_handles_labels()[0] + custom_legend_elements)
+        plt.legend(
+            handles=plt.gca().get_legend_handles_labels()[0] + custom_legend_elements
+        )
 
     def crono_plot(self, call_data, label=""):
         series = []
@@ -391,14 +422,18 @@ def summurize(working_list, percentile=75, filter_below=0):
             if step_name in SPECIAL_NAMES:
                 continue
             if isinstance(step_dict[step_name], list):
-                series[step_name][step_number] = sum([i["time"] for i in step_dict[step_name]])
+                series[step_name][step_number] = sum(
+                    [i["time"] for i in step_dict[step_name]]
+                )
 
     df_means = {}
     for step_name in series.keys():
         all_values = np.array(list(series[step_name].values()))
         step_dict = {}
         step_dict["mean"] = np.mean(all_values)
-        step_dict["min"] = np.min(all_values) if len(all_values[all_values != 0]) > 0 else 0
+        step_dict["min"] = (
+            np.min(all_values) if len(all_values[all_values != 0]) > 0 else 0
+        )
         step_dict["max"] = np.max(all_values)  # Added max calculation
         upper_quantile = np.percentile(all_values, percentile)
         lower_quantile = np.percentile(all_values, 100 - percentile)
@@ -406,7 +441,9 @@ def summurize(working_list, percentile=75, filter_below=0):
         upper_bound = upper_quantile + quantile_range * 1.5
         lower_bound = lower_quantile - quantile_range * 1.5
         lower_bound = max(lower_bound, filter_below)
-        filtered_values = [v for v in all_values if v <= upper_bound and v >= lower_bound]
+        filtered_values = [
+            v for v in all_values if v <= upper_bound and v >= lower_bound
+        ]
         step_dict["quantile_filtered"] = np.mean(filtered_values)
         df_means[step_name] = step_dict
 

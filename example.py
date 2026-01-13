@@ -1,8 +1,10 @@
-from porter_bench import bench_dict, TICTOC_CUDA_AVAILABLE
-from random import random, randint
+from random import randint, random
+
 import numpy as np
-from tqdm import tqdm
 import torch
+from tqdm import tqdm
+
+from porter_bench import TICTOC_CUDA_AVAILABLE, bench_dict
 
 
 def demo_bench_dict_usage():
