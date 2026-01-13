@@ -1,4 +1,5 @@
 import os
+import threading
 
 from porter_bench.MemoryBenchmarker import MemoryBenchmarker
 from porter_bench.TimeBenchmarker import TimeBenchmarker
@@ -39,59 +40,75 @@ class Benchmarker:
         self.save_on_step = save_on_step
 
         self.started = False
+        self._lock = threading.Lock()
 
     def set_save_on_step(self, save_on_step: bool = True) -> None:
         """
         Sets the `save_on_step` flag to the specified value.
         """
-        self.save_on_step = save_on_step
+        with self._lock:
+            self.save_on_step = save_on_step
 
     def set_save_on_gstop(self, save_on_gstop: int = 1) -> None:
         """
         Sets the `save_on_gstop` value to the specified value.
         """
-        self.save_on_gstop = save_on_gstop
+        with self._lock:
+            self.save_on_gstop = save_on_gstop
 
     def enable(self) -> None:
         """
         Enables benchmarking by setting the `enable` flag to True.
         """
-        self.enabled = True
+        with self._lock:
+            self.enabled = True
 
     def disable(self) -> None:
         """
         Disables benchmarking by setting the `enable` flag to False.
         """
-        self.enabled = False
+        with self._lock:
+            self.enabled = False
 
     def enable_memory_tracking(self, per_step=False) -> None:
         """
         Enables memory tracking within the benchmark.
         """
+        # Call these outside lock to avoid potential deadlock
         self.memory_benchmaker.enable()
         if per_step:
             self.memory_benchmaker.enable_memory_tracking_in_step()
-        self.register_memory_timings = True
+
+        with self._lock:
+            self.register_memory_timings = True
 
     def start(self) -> None:
         """
         Starts a new benchmark by resetting the step and global timers and setting the `started`
           flag to True.
         """
-        if self.enabled:
-            self.time_benchmaker.start()
+        with self._lock:
+            if not self.enabled:
+                return
             self.started = True
+
+        # Call time_benchmaker.start() outside lock to avoid potential deadlock
+        self.time_benchmaker.start()
 
     def gstep(self) -> None:
         """
         Ends the current step within a benchmark, stores accumulated step time and memory usage,
         resets the step timer, and starts a new step.
         """
-        if self.enabled:
+        with self._lock:
+            enabled = self.enabled
+            register_memory = self.register_memory_timings
+
+        if enabled:
             self.gstop()
             self.time_benchmaker.gstep()
             self.memory_benchmaker.gstep()
-            if self.register_memory_timings:
+            if register_memory:
                 self.time_benchmaker.step("gstep_memory")
             self.start()
 
@@ -101,21 +118,35 @@ class Benchmarker:
          execution,
         and resets the `started` flag.
         """
-        if self.enabled:
-            if self.started:
-                self.time_benchmaker.step("gstop")
-                self.memory_benchmaker.gstop()
-                if self.register_memory_timings:
-                    self.time_benchmaker.step("gstop_memory")
-                self.time_benchmaker.gstop()
-                self.started = False
+        with self._lock:
+            if not self.enabled:
+                return
 
-                if self.save_on_gstop > 0:
-                    if (
-                        len(self.time_benchmaker.step_dict_list) % self.save_on_gstop
-                        == 0
-                    ):
-                        self.save_data()
+            if not self.started:
+                return
+
+            register_memory = self.register_memory_timings
+            save_on_gstop = self.save_on_gstop
+
+        # Perform benchmarking operations outside lock
+        self.time_benchmaker.step("gstop")
+        self.memory_benchmaker.gstop()
+        if register_memory:
+            self.time_benchmaker.step("gstop_memory")
+        self.time_benchmaker.gstop()
+
+        with self._lock:
+            self.started = False
+
+            # Check if we need to save
+            should_save = False
+            if save_on_gstop > 0:
+                with self.time_benchmaker._lock:
+                    if len(self.time_benchmaker.step_dict_list) % save_on_gstop == 0:
+                        should_save = True
+
+        if should_save:
+            self.save_data()
 
     def step(self, topic: str = "", memory_extra=None, time_extra=None) -> None:
         """
@@ -124,21 +155,35 @@ class Benchmarker:
         Args:
             topic (str, optional): The name of the step being timed. Defaults to an empty string.
         """
-        if self.enabled:
-            self.time_benchmaker.step(topic, extra=time_extra)
-            self.memory_benchmaker.step(topic, extra=memory_extra)
-            if self.register_memory_timings:
-                self.time_benchmaker.step(topic + "_MEMORY_STEP")
+        with self._lock:
+            if not self.enabled:
+                return
 
-            if self.save_on_step:
-                self.save_data()
+            register_memory = self.register_memory_timings
+            save_on_step = self.save_on_step
+
+        # Perform benchmarking operations outside lock
+        self.time_benchmaker.step(topic, extra=time_extra)
+        self.memory_benchmaker.step(topic, extra=memory_extra)
+        if register_memory:
+            self.time_benchmaker.step(topic + "_MEMORY_STEP")
+
+        if save_on_step:
+            self.save_data()
 
     def save_data(self) -> None:
         """
         Saves benchmark results by generating plots, writing summaries, creating visualizations,
         saving the global dictionary list as a JSON file, and saving memory usage data.
         """
-        if self.enabled:
-            os.makedirs(self.folder, exist_ok=True)
-            self.time_benchmaker.save_data(self.file)
-            self.memory_benchmaker.save_data(self.file)
+        with self._lock:
+            if not self.enabled:
+                return
+
+            folder = self.folder
+            file = self.file
+
+        # Perform file operations outside lock
+        os.makedirs(folder, exist_ok=True)
+        self.time_benchmaker.save_data(file)
+        self.memory_benchmaker.save_data(file)

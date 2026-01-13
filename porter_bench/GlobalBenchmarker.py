@@ -1,4 +1,5 @@
 import os
+import threading
 from typing import Dict, List, Optional, Union
 
 from .basic import get_timestamp
@@ -23,6 +24,7 @@ class GlobalBenchmarker:
         self.enabled = True
         self.time_string = get_timestamp()
         self.default_path = os.path.join(DEFAULT_SAVING_DIR, self.time_string)
+        self._lock = threading.Lock()
 
     def set_default_path(self, path: str) -> None:
         """
@@ -31,23 +33,32 @@ class GlobalBenchmarker:
         Args:
             path (str): The base directory for storing results.
         """
-        self.time_string = get_timestamp()
-        self.default_path = os.path.join(path, f"{self.time_string}")
+        with self._lock:
+            self.time_string = get_timestamp()
+            self.default_path = os.path.join(path, f"{self.time_string}")
 
     def enable(self) -> None:
         """
         Enables all benchmark instances by setting their `enable` flags to True.
         """
-        self.enabled = True
-        for bench in self.benchmarkers.values():
+        with self._lock:
+            self.enabled = True
+            benchmarkers_snapshot = list(self.benchmarkers.values())
+
+        # Call enable on benchmarkers outside the lock to avoid potential deadlocks
+        for bench in benchmarkers_snapshot:
             bench.enable()
 
     def disable(self) -> None:
         """
         Disables all benchmark instances by setting their `enable` flags to False.
         """
-        self.enabled = False
-        for bench in self.benchmarkers.values():
+        with self._lock:
+            self.enabled = False
+            benchmarkers_snapshot = list(self.benchmarkers.values())
+
+        # Call disable on benchmarkers outside the lock to avoid potential deadlocks
+        for bench in benchmarkers_snapshot:
             bench.disable()
 
     def __getitem__(self, item: str) -> Benchmarker:
@@ -60,17 +71,23 @@ class GlobalBenchmarker:
         Returns:
             Benchmarker: The requested benchmark instance.
         """
-        get_bench: Optional[Benchmarker] = self.benchmarkers.get(item, None)
-        if get_bench is None:
-            self.benchmarkers[item] = Benchmarker(f"{self.default_path}/{item}")
-        return self.benchmarkers[item]
+        with self._lock:
+            get_bench: Optional[Benchmarker] = self.benchmarkers.get(item, None)
+            if get_bench is None:
+                self.benchmarkers[item] = Benchmarker(f"{self.default_path}/{item}")
+            return self.benchmarkers[item]
 
     def save(self) -> None:
         """
         Saves the results of all enabled benchmark instances by calling their `save_data` methods.
         """
-        if self.enabled:
-            for bench in self.benchmarkers.values():
+        with self._lock:
+            enabled = self.enabled
+            benchmarkers_snapshot = list(self.benchmarkers.values())
+
+        # Call save_data outside the lock to avoid potential deadlocks
+        if enabled:
+            for bench in benchmarkers_snapshot:
                 bench.save_data()
 
 
