@@ -69,3 +69,65 @@ print('frequency', t_counter.get_frequency(), 'hz')
 # save results of the benchmark into a file called performance_*timestamp*
 bench_dict.save()  # Save the benchmark results
 ```
+
+## Development and Testing
+
+### BDD Testing
+
+This project uses Behavior-Driven Development (BDD) testing with pytest-bdd. BDD tests are written in natural language (Gherkin syntax) making them readable by both technical and non-technical stakeholders.
+
+#### Installation
+
+Install development dependencies:
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+Or install with development extras:
+
+```bash
+pip install -e .[dev]
+```
+
+#### Running Tests
+
+Run all tests:
+```bash
+pytest
+```
+
+Run with coverage report:
+```bash
+pytest --cov=porter_bench --cov-report=html
+```
+
+Run specific test markers:
+```bash
+pytest -m bdd          # Run only BDD tests
+pytest -m timer        # Run only timer tests
+pytest -m benchmarker  # Run only benchmarker tests
+```
+
+#### Test Structure
+
+BDD tests are organized in the `tests/` directory:
+- `features/` - Gherkin feature files describing behavior
+- `test_*_bdd.py` - Step definitions implementing the scenarios
+- `conftest.py` - Shared test fixtures and configuration
+
+For more details on writing and running BDD tests, see [tests/README.md](tests/README.md).
+
+### Code Quality
+
+The project includes comprehensive code quality tools:
+- **Black**: Code formatting
+- **isort**: Import sorting
+- **Flake8**: Linting
+- **mypy**: Type checking
+- **Pre-commit hooks**: Automated quality checks
+
+Run pre-commit checks:
+```bash
+pre-commit run --all-files
+```
