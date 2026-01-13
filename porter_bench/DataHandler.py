@@ -1,9 +1,8 @@
+from porter_bench.TimeBenchmarker import TimePlotter
+from porter_bench.MemoryBenchmarker import MemoryPlotter
 from typing import Dict
 
 import matplotlib.pyplot as plt
-
-from tictoc.MemoryBenchmarker import MemoryPlotter
-from tictoc.TimeBenchmarker import TimePlotter
 
 COLORS = ["b", "g", "r", "c", "m", "y", "k", "w"]
 

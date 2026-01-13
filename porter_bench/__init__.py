@@ -4,6 +4,7 @@ import os
 from .basic import CountDownClock, Timer
 from .Benchmarker import Benchmarker
 from .GlobalBenchmarker import GlobalBenchmarker
+from .basic import *
 from .MemoryBenchmarker import TICTOC_CUDA_AVAILABLE
 
 logging.basicConfig(
