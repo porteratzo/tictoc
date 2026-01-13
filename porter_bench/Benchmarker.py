@@ -1,7 +1,7 @@
 import os
 
-from .MemoryBenchmarker import MemoryBenchmarker, MemorySaver
-from .TimeBenchmarker import TimeBenchmarker, TimerSaver
+from porter_bench.MemoryBenchmarker import MemoryBenchmarker
+from porter_bench.TimeBenchmarker import TimeBenchmarker
 
 
 class Benchmarker:

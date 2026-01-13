@@ -1,15 +1,14 @@
 # %%
-from porter_bench.utils import load_record
-from porter_bench.DataHandler import DataHandler
 import os
-from porter_bench.TimeBenchmarker import TimePlotter
-from porter_bench.MemoryBenchmarker import MemoryPlotter
-from typing import Dict
-import matplotlib.pyplot as plt
 from glob import glob
 from typing import Dict
 
 import matplotlib.pyplot as plt
+
+from porter_bench.DataHandler import DataHandler
+from porter_bench.MemoryBenchmarker import MemoryPlotter
+from porter_bench.TimeBenchmarker import TimePlotter
+from porter_bench.utils import load_record
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
