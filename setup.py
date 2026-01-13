@@ -21,4 +21,5 @@ setup(
         "Operating System :: POSIX :: Linux",
         "Programming Language :: Python :: 3",
     ],
+    options={"": {"editable_mode": "compat"}},
 )

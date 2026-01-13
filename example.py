@@ -1,4 +1,4 @@
-from tictoc import bench_dict, TICTOC_CUDA_AVAILABLE
+from porter_bench import bench_dict, TICTOC_CUDA_AVAILABLE
 from random import random, randint
 import numpy as np
 from tqdm import tqdm

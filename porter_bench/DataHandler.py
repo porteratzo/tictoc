@@ -1,5 +1,5 @@
-from tictoc.TimeBenchmarker import TimePlotter
-from tictoc.MemoryBenchmarker import MemoryPlotter
+from porter_bench.TimeBenchmarker import TimePlotter
+from porter_bench.MemoryBenchmarker import MemoryPlotter
 from typing import Dict
 import matplotlib.pyplot as plt
 

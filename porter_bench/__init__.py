@@ -2,7 +2,7 @@ import os
 import logging
 from .GlobalBenchmarker import GlobalBenchmarker
 from .Benchmarker import Benchmarker
-from .basic import Timer, CountDownClock
+from .basic import *
 from .MemoryBenchmarker import TICTOC_CUDA_AVAILABLE
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
