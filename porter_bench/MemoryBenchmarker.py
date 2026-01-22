@@ -57,74 +57,96 @@ class MemoryBenchmarker:
         self.track_max_memory = False
 
         self.gc_countdown = CountDownClock(gc_countdown_time)
+        self._lock = threading.Lock()
 
     def enable_memory_tracking_in_step(self) -> None:
         """
         Enables memory usage tracking specifically for the step method.
         """
-        self.track_memory_in_step = True
+        with self._lock:
+            self.track_memory_in_step = True
 
     def enable_max_memory(self, poll_time=0.1):
-        self.track_max_memory = True
-        self.MaxMemoryMonitor = MaxMemoryMonitor(poll_time)
+        with self._lock:
+            self.track_max_memory = True
+            self.MaxMemoryMonitor = MaxMemoryMonitor(poll_time)
 
     def set_top_n(self, top_n: int) -> None:
         """
         Sets the number of top memory-consuming objects to track.
         """
-        self.top_n = top_n
+        with self._lock:
+            self.top_n = top_n
 
     def set_gc_time(self, set_gc_time: float) -> None:
         """
         Sets the number of top memory-consuming objects to track.
         """
-        self.gc_countdown.set_count_down(set_gc_time)
+        with self._lock:
+            self.gc_countdown.set_count_down(set_gc_time)
 
     def enable(self) -> None:
         """
         Enables benchmarking by setting the `enable` flag to True.
         """
-        self._enable = True
+        with self._lock:
+            self._enable = True
 
     def disable(self) -> None:
         """
         Disables benchmarking by setting the `enable` flag to False.
         """
-        self._enable = False
+        with self._lock:
+            self._enable = False
 
     def enable_cuda_memory_tracking(self) -> None:
         """
         Enables CUDA memory usage tracking.
         """
-        if TICTOC_CUDA_AVAILABLE:
-            self.track_cuda_memory = True
+        with self._lock:
+            if TICTOC_CUDA_AVAILABLE:
+                self.track_cuda_memory = True
 
     def disable_cuda_memory_tracking(self) -> None:
         """
         Disables CUDA memory usage tracking.
         """
-        self.track_cuda_memory = False
+        with self._lock:
+            self.track_cuda_memory = False
 
     def start(self) -> None:
         """
         Starts a new benchmark by resetting the step and global timers and setting the `started`
           flag to True.
         """
-        if self._enable:
-            self.started = True
+        with self._lock:
+            if self._enable:
+                self.started = True
 
     def gstep(self) -> None:
         """
         Ends the current step within a benchmark, stores accumulated step time and memory usage,
         resets the step timer, and starts a new step.
         """
-        if self._enable:
-            self.memory_usage = defaultdict(list)
-            self.crono_counter = 0
-            self.save_stats("gstep")
-            self.start()
-            if self.track_max_memory:
-                self.MaxMemoryMonitor.start()
+        should_start_monitor = False
+        monitor = None
+
+        with self._lock:
+            if self._enable:
+                self.memory_usage = defaultdict(list)
+                self.crono_counter = 0
+                self._save_stats_unsafe("gstep")
+
+                # Inline start logic to avoid recursive locking
+                self.started = True
+
+                # Check if we need to start MaxMemoryMonitor
+                should_start_monitor = self.track_max_memory
+                monitor = self.MaxMemoryMonitor if should_start_monitor else None
+
+        # Start monitor outside the lock to avoid potential deadlock
+        if should_start_monitor and monitor is not None:
+            monitor.start()
 
     def gstop(self) -> None:
         """
@@ -132,13 +154,23 @@ class MemoryBenchmarker:
          execution,
         and resets the `started` flag.
         """
-        if self._enable:
-            if self.started:
-                self.started = False
-                self.save_stats("gstop")
-                self.memory_usage_list.append(self.memory_usage)
-                if self.track_max_memory:
-                    self.MaxMemoryMonitor.stop()
+        should_stop_monitor = False
+        monitor = None
+
+        with self._lock:
+            if self._enable:
+                if self.started:
+                    self.started = False
+                    self._save_stats_unsafe("gstop")
+                    self.memory_usage_list.append(self.memory_usage)
+
+                    # Check if we need to stop MaxMemoryMonitor
+                    should_stop_monitor = self.track_max_memory
+                    monitor = self.MaxMemoryMonitor if should_stop_monitor else None
+
+        # Stop monitor outside the lock to avoid potential deadlock
+        if should_stop_monitor and monitor is not None:
+            monitor.stop()
 
     def step(self, topic: str = "", extra=None) -> None:
         """
@@ -147,13 +179,15 @@ class MemoryBenchmarker:
         Args:
             topic (str, optional): The name of the step being timed. Defaults to an empty string.
         """
-        if self._enable and self.track_memory_in_step:  # Check both flags
-            if self.gc_countdown.completed():
-                gc.collect()
-                self.gc_countdown.reset()
-            self.save_stats(topic, extra=extra)
+        with self._lock:
+            if self._enable and self.track_memory_in_step:  # Check both flags
+                if self.gc_countdown.completed():
+                    gc.collect()
+                    self.gc_countdown.reset()
+                self._save_stats_unsafe(topic, extra=extra)
 
-    def save_stats(self, topic, extra=None):
+    def _save_stats_unsafe(self, topic, extra=None):
+        """Internal method to save stats. Assumes lock is already held."""
         top_memory_objects = get_top_memory_objects(self.top_n)
         cuda_memory_usage = (
             self.get_cuda_memory_usage() if self.track_cuda_memory else None
@@ -174,6 +208,11 @@ class MemoryBenchmarker:
             self.memory_usage[START_TIME] = time()
         elif topic == "gstop":
             self.memory_usage[STOP_TIME] = time()
+
+    def save_stats(self, topic, extra=None):
+        """Thread-safe wrapper for _save_stats_unsafe."""
+        with self._lock:
+            self._save_stats_unsafe(topic, extra)
 
     def get_cuda_memory_usage(self) -> Dict[str, int]:
         """
@@ -206,9 +245,12 @@ class MemorySaver:
         self.benchmarker = benchmarker
 
         self.series = []
-        self.WORKING_LIST = self.benchmarker.memory_usage_list.copy()
-        if self.benchmarker.started:
-            self.WORKING_LIST.append(self.benchmarker.memory_usage)
+
+        # Thread-safe snapshot of benchmarker data
+        with self.benchmarker._lock:
+            self.WORKING_LIST = self.benchmarker.memory_usage_list.copy()
+            if self.benchmarker.started:
+                self.WORKING_LIST.append(self.benchmarker.memory_usage.copy())
 
     def save_data(self) -> None:
         """

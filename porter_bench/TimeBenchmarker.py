@@ -1,5 +1,6 @@
 import json
 import os
+import threading
 from collections import defaultdict
 from time import time
 from typing import Dict, List
@@ -48,40 +49,62 @@ class TimeBenchmarker:
 
         self.started = False
         self.crono_counter = 0
+        self._lock = threading.Lock()
 
     def enable(self) -> None:
         """
         Enables benchmarking by setting the `enable` flag to True.
         """
-        self._enable = True
+        with self._lock:
+            self._enable = True
 
     def disable(self) -> None:
         """
         Disables benchmarking by setting the `enable` flag to False.
         """
-        self._enable = False
+        with self._lock:
+            self._enable = False
 
     def start(self) -> None:
         """
         Starts a new benchmark by resetting the step and global timers and setting the `started`
           flag to True.
         """
-        if self._enable:
-            self.step_timer.tic()
-            self.global_timer.tic()
-            self.started = True
+        with self._lock:
+            if self._enable:
+                self.step_timer.tic()
+                self.global_timer.tic()
+                self.started = True
 
     def gstep(self) -> None:
         """
         Ends the current step within a benchmark, stores accumulated step time and memory usage,
         resets the step timer, and starts a new step.
         """
-        if self._enable:
-            self.gstop()
-            self.crono_counter = 0
-            self.step_dict = defaultdict(list)
-            self.step_dict[START_TIME] = time()
-            self.start()
+        with self._lock:
+            if self._enable:
+                # Call gstop logic inline to avoid recursive locking
+                if self.started:
+                    if "GLOBAL" not in self.step_dict.keys():
+                        self.step_dict["GLOBAL"] = [
+                            {
+                                "time": self.global_timer.ttoc(),
+                                "crono_counter": self.crono_counter,
+                            }
+                        ]
+                    self.step_dict[STOP_TIME] = time()
+                    self.step_dict_list.append(self.step_dict)
+                    self.started = False
+
+                # Reset for new step
+                self.crono_counter = 0
+                self.step_dict = defaultdict(list)
+                self.step_dict[START_TIME] = time()
+
+                # Call start logic inline to avoid recursive locking
+                self.step_timer.tic()
+                self.global_timer.tic()
+                self.started = True
 
     def gstop(self) -> None:
         """
@@ -89,18 +112,19 @@ class TimeBenchmarker:
          execution,
         and resets the `started` flag.
         """
-        if self._enable:
-            if self.started:
-                if "GLOBAL" not in self.step_dict.keys():
-                    self.step_dict["GLOBAL"] = [
-                        {
-                            "time": self.global_timer.ttoc(),
-                            "crono_counter": self.crono_counter,
-                        }
-                    ]
-                self.step_dict[STOP_TIME] = time()
-                self.step_dict_list.append(self.step_dict)
-                self.started = False
+        with self._lock:
+            if self._enable:
+                if self.started:
+                    if "GLOBAL" not in self.step_dict.keys():
+                        self.step_dict["GLOBAL"] = [
+                            {
+                                "time": self.global_timer.ttoc(),
+                                "crono_counter": self.crono_counter,
+                            }
+                        ]
+                    self.step_dict[STOP_TIME] = time()
+                    self.step_dict_list.append(self.step_dict)
+                    self.started = False
 
     def step(self, topic: str = "", extra=None) -> None:
         """
@@ -109,15 +133,16 @@ class TimeBenchmarker:
         Args:
             topic (str, optional): The name of the step being timed. Defaults to an empty string.
         """
-        if self._enable:
-            self.step_dict[topic].append(
-                {
-                    "time": self.step_timer.ttoc(),
-                    "crono_counter": self.crono_counter,
-                    "extra": extra,
-                }
-            )
-            self.crono_counter += 1
+        with self._lock:
+            if self._enable:
+                self.step_dict[topic].append(
+                    {
+                        "time": self.step_timer.ttoc(),
+                        "crono_counter": self.crono_counter,
+                        "extra": extra,
+                    }
+                )
+                self.crono_counter += 1
 
     def save_data(self, file):
         TimerSaver(self, file).save_data()
@@ -133,9 +158,11 @@ class TimerSaver:
 
         self.series = defaultdict(dict)
 
-        self.WORKING_LIST = self.benchmarker.step_dict_list.copy()
-        if self.benchmarker.started:
-            self.WORKING_LIST.append(self.benchmarker.step_dict)
+        # Thread-safe snapshot of benchmarker data
+        with self.benchmarker._lock:
+            self.WORKING_LIST = self.benchmarker.step_dict_list.copy()
+            if self.benchmarker.started:
+                self.WORKING_LIST.append(self.benchmarker.step_dict.copy())
 
     def summarize_data(self):
         self.df_means, self.series = summurize(self.WORKING_LIST)
