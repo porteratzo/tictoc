@@ -491,12 +491,6 @@ class MemoryPlotter:
         plt.xlabel("Step")
         plt.tight_layout()
         plt.legend()
-        save_path = (
-            os.path.join(self.folder_path, "CUDA_MEMORY.png")
-            if self.folder_path
-            else "CUDA_MEMORY.png"
-        )
-        plt.savefig(save_path, dpi=200)
 
 
 def get_top_memory_objects(top_n: int = 5) -> list[tuple[str, int]]:

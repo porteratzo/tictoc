@@ -87,7 +87,7 @@ def generate_plots(
             if plt.gca().has_data():
                 plt.tight_layout()
                 out = os.path.join(output_dir, f"{record_name}_cuda_memory.png")
-                plt.savefig(out, dpi=150)
+                # plt.savefig(out, dpi=150)
                 print(f"  Saved: {out}")
                 if show:
                     plt.show()
@@ -111,8 +111,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--output",
-        default="plots",
-        help="Directory to save plots (default: plots/)",
+        default="PLOTS",
+        help="Directory to save plots (default: PLOTS/)",
     )
     parser.add_argument(
         "--show",
