@@ -65,3 +65,11 @@ class DataHandler:
             self.time_plotter.crono_plot(
                 self.record_dict[name]["calls"][record_name], label=name
             )
+
+    def plot_cuda_memory(self, record_name: str = "global") -> None:
+        """Plot CUDA memory usage for every record in the dict."""
+        plt.title(record_name)
+        for name in self.record_dict.keys():
+            self.memory_plotter.plot_cuda_data(
+                self.record_dict[name]["memory"][record_name]
+            )

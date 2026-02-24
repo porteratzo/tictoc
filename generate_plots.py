@@ -17,7 +17,7 @@ def get_record_names(record: dict[str, Any]) -> list[str]:
 
 def generate_plots(
     record_path: str = ".",
-    output_dir: str = "plots",
+    output_dir: str = "PLOTS",
     show: bool = False,
 ) -> None:
     """Load benchmark records and generate all plots, saving them to output_dir."""
@@ -29,9 +29,8 @@ def generate_plots(
 
     os.makedirs(output_dir, exist_ok=True)
 
-    # DataHandler expects {label: record} — wrap the single record under a label
-    record_dict = {name: record for name in record_names}
-    handler = DataHandler(record_dict)
+    # DataHandler expects {run_label: record} — one entry per run being compared
+    handler = DataHandler({"run": record})
 
     for record_name in record_names:
         print(f"\n--- Plotting '{record_name}' ---")
@@ -81,8 +80,22 @@ def generate_plots(
             if show:
                 plt.show()
             plt.close()
+
+            # 5. CUDA memory usage (skipped silently if no CUDA data)
+            plt.figure(figsize=(16, 5))
+            handler.plot_cuda_memory(record_name=record_name)
+            if plt.gca().has_data():
+                plt.tight_layout()
+                out = os.path.join(output_dir, f"{record_name}_cuda_memory.png")
+                plt.savefig(out, dpi=150)
+                print(f"  Saved: {out}")
+                if show:
+                    plt.show()
+            else:
+                print("  Skipping CUDA memory plot (no CUDA data)")
+            plt.close()
         else:
-            print("  Skipping memory plot (no memory data)")
+            print("  Skipping memory plots (no memory data)")
 
     print(f"\nAll plots saved to: {os.path.abspath(output_dir)}/")
 

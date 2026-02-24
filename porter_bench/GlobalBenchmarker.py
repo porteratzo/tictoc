@@ -132,4 +132,5 @@ class IterBench:
                 break
             return result
         else:
+            self.bench_handle[self.name].gstop()
             raise StopIteration

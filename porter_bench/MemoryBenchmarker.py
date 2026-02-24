@@ -284,8 +284,6 @@ class MemorySaver:
 
     def save_data(self) -> None:
         """Save memory usage data to disk."""
-        # self.plot_data()
-        # self.plot_cuda_data()  # Plot CUDA metrics
         self.save_memory_usage()
 
     def save_memory_usage(self) -> None:
@@ -444,9 +442,10 @@ class MemoryPlotter:
         """Generate a plot for CUDA memory usage metrics."""
         series = memory_data
         if not any(
-            "cuda memory usage" in entry[key]
+            record.get("cuda memory usage")
             for entry in series
-            for key in entry.keys()
+            for records in entry.values()
+            for record in records
         ):
             # Skip plotting if no CUDA data is available
             return
@@ -459,22 +458,23 @@ class MemoryPlotter:
         max_reserved = []
 
         for step_number, step_dict in enumerate(series):
-            for step_name, metrics in step_dict.items():
-                if "cuda memory usage" in metrics and metrics["cuda memory usage"]:
-                    step_names.append(f"{step_number}_{step_name}")
-                    cuda_metrics = metrics["cuda memory usage"]
-                    allocated.append(
-                        cuda_metrics["allocated"] / (1024**2)
-                    )  # Convert to MB
-                    reserved.append(
-                        cuda_metrics["reserved"] / (1024**2)
-                    )  # Convert to MB
-                    max_allocated.append(
-                        cuda_metrics["max_allocated"] / (1024**2)
-                    )  # Convert to MB
-                    max_reserved.append(
-                        cuda_metrics["max_reserved"] / (1024**2)
-                    )  # Convert to MB
+            for step_name, records in step_dict.items():
+                for record in records:
+                    if record.get("cuda memory usage"):
+                        step_names.append(f"{step_number}_{step_name}")
+                        cuda_metrics = record["cuda memory usage"]
+                        allocated.append(
+                            cuda_metrics["allocated"] / (1024**2)
+                        )  # Convert to MB
+                        reserved.append(
+                            cuda_metrics["reserved"] / (1024**2)
+                        )  # Convert to MB
+                        max_allocated.append(
+                            cuda_metrics["max_allocated"] / (1024**2)
+                        )  # Convert to MB
+                        max_reserved.append(
+                            cuda_metrics["max_reserved"] / (1024**2)
+                        )  # Convert to MB
 
         # Plot CUDA metrics
         plt.figure(figsize=(18, 6))
@@ -510,10 +510,7 @@ def get_top_memory_objects(top_n: int = 5) -> list[tuple[str, int]]:
         return []
     else:
         gc.collect()
-        if True:
-            all_objects = gc.get_objects()
-        else:
-            all_objects = get_all_objects()
+        all_objects = gc.get_objects()
         top_memory_objects: list[tuple[str, int]] = []
         for obj in all_objects:
             obj_size = sys.getsizeof(obj)
@@ -605,7 +602,13 @@ def _getr(slist: list[Any], olist: list[Any], seen: dict[int, None]) -> None:
 
 
 def get_all_objects() -> list:
-    """Return a list of all live Python objects, not including the list itself."""
+    """Return a list of all live Python objects, not including the list itself.
+
+    Note: This deeper traversal is not yet validated for production use.
+    """
+    raise NotImplementedError(
+        "get_all_objects() is not implemented; use gc.get_objects() directly."
+    )
     gcl = gc.get_objects()
     olist: list[Any] = []
     seen: dict[int, None] = {}

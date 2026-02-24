@@ -34,6 +34,7 @@ Homepage = "https://github.com/porteratzo/porter_bench"
 examples = [
     "torch>=2.0.0",
     "tqdm>=4.65.0",
+    "ipykernel>=6.0.0",
 ]
 dev = [
     "black>=24.1.1",
@@ -88,6 +89,11 @@ warn_unused_ignores = true
 warn_no_return = true
 follow_imports = "normal"
 strict_optional = true
+exclude = '^tests/'
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+ignore_errors = true
 
 [tool.pylint.messages_control]
 max-line-length = 88
@@ -101,6 +107,14 @@ disable = [
 
 [tool.pylint.format]
 max-line-length = 88
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+markers = [
+    "cuda: tests that require a CUDA-capable GPU",
+    "slow: tests that take more than a few seconds",
+]
 
 [tool.flake8]
 max-line-length = 88
@@ -118,4 +132,5 @@ exclude = [
     "*.egg-info",
     ".tox",
     ".mypy_cache",
+    "tests",
 ]

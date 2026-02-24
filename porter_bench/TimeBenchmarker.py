@@ -174,8 +174,6 @@ class TimerSaver:
     def save_data(self) -> None:
         """Write summary and raw step data to disk."""
         self.write_summary()
-        # self.make_bars()
-        # self.plot_data()
         self.save_json()
 
     def write_summary(self) -> None:
@@ -332,11 +330,11 @@ class TimePlotter:
         else:
             outlier_max = float("inf")
         for n, step_name in enumerate(seriesDF.keys()):
-            X = np.arange(max_length + 1)
-            Y = np.zeros(max_length + 1)
+            X = np.arange(max_length)
+            Y = np.zeros(max_length)
 
             real_values = np.asarray(list(seriesDF[step_name]))
-            real_steps = list(seriesDF[step_name].keys())
+            real_steps = list(seriesDF[step_name].dropna().index)
             for step_number, step_time in seriesDF[step_name].items():
                 Y[step_number] = step_time
 
@@ -412,6 +410,8 @@ class TimePlotter:
         for step_number, step_dict in call_data.iterrows():
             crono_series = {}
             for step_name in step_dict.keys():
+                if step_name == "GLOBAL":
+                    continue
                 if isinstance(step_dict[step_name], list):
                     for record in step_dict[step_name]:
                         crono_series[record["crono_counter"]] = {
@@ -421,7 +421,7 @@ class TimePlotter:
                         }
             ordered_crono = [crono_series[n] for n in sorted(crono_series.keys())]
             if filter_no_change_val is not None:
-                ordered_crono = filter_no_change(filter_no_change_val, ordered_crono)
+                ordered_crono, _ = filter_no_change(filter_no_change_val, ordered_crono)
 
             if cluster > 0:
                 ordered_crono = find_clusters(ordered_crono, cluster, cluster_filter)
