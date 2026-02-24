@@ -1,71 +1,175 @@
-# README for tictoc Repository
+# porter_bench
 
-Welcome to the tictoc repository! This repository is dedicated to providing a comprehensive benchmarking tool that leverages the `bench_dict` object. This tool is designed to facilitate the measurement of execution time for various steps in your code, allowing for a detailed analysis of performance bottlenecks and efficiency improvements.
+A Python benchmarking library for measuring execution time and memory usage across named pipeline steps and training loop iterations.
 
-## Features
+## Installation
 
-- **Step-wise Time Measurement**: Utilize the `benchdict` object to measure the time taken by individual steps within your code.
-- **Global Step Tracking**: Track the time for overarching global steps, providing a broader view of your code's performance.
-- **Automatic Data Saving**: Automatically saves the mean times of each step to a CSV file, making data analysis and sharing straightforward.
-- **Visualization**: Generates a bar plot for the mean time per step and a time series for each global step, offering visual insights into your code's performance.
+```bash
+pip install -e ".[dev]"
+pre-commit install
+# or
+make install
+```
+
+## Quick start
+
+```python
+from porter_bench import bench_dict
+
+for i in range(10):
+    bench_dict["my_pipeline"].gstep()   # boundary between iterations
+
+    data = load()
+    bench_dict["my_pipeline"].step("load")
+
+    result = process(data)
+    bench_dict["my_pipeline"].step("process")
+
+    bench_dict["my_pipeline"].gstop()
+
+bench_dict.save()  # writes JSON files to TICTOC_PERFORMANCE/<timestamp>/
+```
 
 ## Usage
 
-Here's a quick start guide to using the BenchDict tool in your projects:
+### Pipeline benchmarking
 
-### Importing Required Modules
-
-First, import the necessary modules from the `tictoc` package, along with other required libraries:
+`bench_dict["name"]` lazily creates a `Benchmarker`. The `gstep`/`gstop` pair marks iteration boundaries; `step(topic)` records time for a named sub-step within that iteration.
 
 ```python
-from tictoc import bench_dict
-from tictoc.basic import count_down_clock, timed_counter
-import time
-import random
+from porter_bench import bench_dict
+
+bench = bench_dict["pipeline"]
+bench.set_save_on_gstop(4)  # auto-save every 4 iterations
+
+for _ in range(20):
+    bench.gstep()
+    bench.step("load")
+    bench.step("compute")
+    bench.step("postprocess")
+    bench.gstop()
+
+bench_dict.save()
 ```
 
-### Using the Countdown Clock
+### Training loop with IterBench
 
-You can use the `count_down_clock` to create a countdown timer. This example creates a 4-second countdown:
+`IterBench` wraps any iterable and calls `gstep()`/`gstop()` automatically around each iteration:
 
 ```python
-count_down = count_down_clock(4)
+from porter_bench import bench_dict
+from porter_bench.GlobalBenchmarker import IterBench
 
-# check if the timer is done
-while not count_down.completed():
-    # print how much time is remaining for the countdown to complete
-    print('time left', count_down.time_left())
-    time.sleep(1)
+for batch in IterBench(dataloader, bench_dict, "training"):
+    bench_dict["training"].step("forward")
+    bench_dict["training"].step("backward")
 ```
 
-### Benchmarking with BenchDict
-
-Initialize the `timed_counter`, this class can be used to obtain counts per second and use the `bench_dict` object to benchmark global steps and individual steps within those global steps:
+### Memory tracking
 
 ```python
-t_counter = timed_counter()
-# start the timer of our counter
-t_counter.start()
+bench = bench_dict["memory"]
+bench.enable_memory_tracking(per_step=True)          # RAM tracking per step
+bench.memory_benchmaker.enable_max_memory(poll_time=0.05)  # peak RAM polling
 
-# reset the timer and the count of our timed counter
-t_counter.reset()
-for i in range(4):
-    bench_dict['g'].gstep()  # Start of a global step for process 'g'
-    bench_dict['g2'].gstep()  # Start of a global step for process 'g2'
-    time.sleep(1 + random.random())  # Simulate a task
-    bench_dict['g'].step('1')  # Mark the end of step 1 within the global step for process 'g'
-    bench_dict['g2'].step('1')  # Mark the end of step 1 within the global step for process 'g2'
-    bench_dict['g2'].gstop()  # End of the global step for process 'g2'
-    time.sleep(1 + random.random())  # Simulate another task
-    bench_dict['g'].step('2')  # Mark the end of step 2 within the global step for process 'g'
-    bench_dict['g'].gstop()  # End of the global step for process 'g'
-    t_counter.count()
-    # print count/time from the timed_counter
-    print('frequency', t_counter.get_frequency(), 'hz')
-# stop the timer of timed_counter
-t_counter.stop()
-
-print('frequency', t_counter.get_frequency(), 'hz')
-# save results of the benchmark into a file called performance_*timestamp*
-bench_dict.save()  # Save the benchmark results
+# Optional CUDA tracking (requires torch with CUDA)
+bench.memory_benchmaker.enable_cuda_memory_tracking()
 ```
+
+### Low-level timer utilities
+
+```python
+from porter_bench import timer
+from porter_bench.basic import CountDownClock, TimedCounter
+
+# Simple timer
+timer.tic()
+result = do_work()
+elapsed = timer.toc()          # seconds since tic
+elapsed = timer.ttoc()         # toc + reset
+
+# Countdown
+clock = CountDownClock(count_down_time=4.0)
+while not clock.completed():
+    print("time left:", clock.time_left())
+
+# Frequency counter
+counter = TimedCounter()
+counter.start()
+for _ in range(100):
+    do_work()
+    counter.count()
+counter.stop()
+print("frequency:", counter.get_frequency(), "Hz")
+```
+
+### Auto-save options
+
+```python
+bench.set_save_on_gstop(N)   # save every N iterations
+bench.set_save_on_step(True)  # save after every step
+```
+
+## Loading and visualising results
+
+```python
+from porter_bench.utils import load_record
+from porter_bench.DataHandler import DataHandler
+
+record = load_record(".")          # loads latest run from TICTOC_PERFORMANCE/
+handler = DataHandler({"run": record})
+
+handler.plot_times(record_name="pipeline")
+handler.make_bars(record_name="pipeline")
+handler.plot_crono(record_name="pipeline")
+handler.plot_memory_usage(record_name="memory")
+```
+
+Or run the standalone script after `make example`:
+
+```bash
+python generate_plots.py --path . --output PLOTS --show
+```
+
+Plots are saved to `PLOTS/` as `<name>_times.png`, `<name>_bars.png`, `<name>_crono.png`, `<name>_memory.png`.
+
+## Output files
+
+All JSON files are written under `TICTOC_PERFORMANCE/<timestamp>/<name>/`:
+
+| File | Contents |
+|---|---|
+| `*_STEP_DICT_DATA.json` | Per-iteration step timings |
+| `*_STEP_DICT_SUMMARY.json` | Aggregated mean/min/max stats |
+| `*_MEMORY.json` | RAM and CUDA memory snapshots |
+
+## Development
+
+```bash
+make test    # pytest
+make lint    # pre-commit run --all-files
+make example # run example.py then generate_plots.py
+```
+
+### TICTOC_TOGGLES
+
+`TICTOC_TOGGLES` is an 8-bit binary string environment variable that exposes boolean feature flags for automating test variations without code changes. Each bit position is an independent toggle (index 0 = rightmost bit).
+
+```bash
+TICTOC_TOGGLES="00000001" pytest   # toggle 0 on
+TICTOC_TOGGLES="00000011" pytest   # toggles 0 and 1 on
+TICTOC_TOGGLES="10000000" pytest   # toggle 7 on
+```
+
+Inside the library, `TICTOC_TOGGLES` is parsed into a `list[bool]` of length 8, importable as:
+
+```python
+from porter_bench import TICTOC_TOGGLES
+
+if TICTOC_TOGGLES[0]:
+    # behaviour variant A
+else:
+    # behaviour variant B
+```
+
+This lets you drive conditional code paths — alternative algorithms, stricter assertions, extra logging — purely from the environment, making it easy to test both branches in CI or a single `pytest` run.

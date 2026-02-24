@@ -13,30 +13,30 @@ conda activate porter_bench
 
 **Install (development):**
 ```bash
-pip install -e ".[dev]"
-pre-commit install
+make install          # pip install -e ".[dev]" && pre-commit install
 ```
 
 **Run tests:**
 ```bash
-pytest
-pytest test_thread_safety.py          # run a specific test file
-pytest test_thread_safety.py::test_concurrent_access  # run a single test
+make test
+pytest tests/test_thread_safety.py                        # single file
+pytest tests/test_thread_safety.py::test_concurrent_access  # single test
 ```
 
 **Lint and format:**
 ```bash
+make lint             # pre-commit run --all-files
 black .
 isort .
 flake8
 mypy porter_bench/
 pylint porter_bench/
-pre-commit run --all-files            # run all hooks at once
 ```
 
-**Run the example:**
+**Run example and generate plots:**
 ```bash
-python example.py
+make example          # python example.py && python generate_plots.py
+python generate_plots.py --path . --output PLOTS --show   # CLI flags
 ```
 
 ## Architecture
@@ -52,6 +52,13 @@ GlobalBenchmarker          # dict-like manager; bench_dict["name"] auto-creates 
     └── MemoryBenchmarker  # RAM/CUDA memory tracking via psutil and torch
 ```
 
+### Module-level singletons (`__init__.py`)
+
+Three singletons are created at import time:
+- `bench_dict` — `GlobalBenchmarker` instance; primary API entry point
+- `benchmarker` — standalone `Benchmarker("performance_benchmark/default")`
+- `timer` — standalone `Timer()`
+
 ### Key abstractions
 
 **Benchmarker lifecycle** (`gstep`/`gstop` pattern):
@@ -61,17 +68,24 @@ GlobalBenchmarker          # dict-like manager; bench_dict["name"] auto-creates 
 - `start()` — begins a fresh iteration without closing a previous one
 
 **GlobalBenchmarker** ([porter_bench/GlobalBenchmarker.py](porter_bench/GlobalBenchmarker.py)):
-- Module-level singleton `bench_dict` is created at import time in `__init__.py`
-- `bench_dict["name"]` creates a `Benchmarker` with path `TICTOC_PERFORMANCE/<timestamp>/<name>`
+- `bench_dict["name"]` lazily creates a `Benchmarker` with path `TICTOC_PERFORMANCE/<timestamp>/<name>`
 - `bench_dict.save()` saves all managed benchmarkers to JSON
+
+**IterBench** ([porter_bench/GlobalBenchmarker.py](porter_bench/GlobalBenchmarker.py)):
+- Iterator wrapper: `for batch in IterBench(dataloader, bench_dict, "name")` automatically calls `gstep()`/`gstop()` around each iteration; use `bench_dict["name"].step(...)` for sub-steps inside the loop.
+
+**Low-level primitives** ([porter_bench/basic.py](porter_bench/basic.py)):
+- `Timer` — `tic()`/`toc()`/`ttoc()` using `time.perf_counter()`
+- `CountDownClock` — extends `Timer` with `completed()` / `time_left()`
+- `TimedCounter` — combines a timer and counter to compute event frequency
 
 **Data saving** ([porter_bench/TimeBenchmarker.py](porter_bench/TimeBenchmarker.py), [porter_bench/MemoryBenchmarker.py](porter_bench/MemoryBenchmarker.py)):
 - `TimerSaver` / `MemorySaver` take a thread-safe snapshot, then write JSON files without holding locks
 - Output files: `<file>_STEP_DICT_DATA.json`, `<file>_STEP_DICT_SUMMARY.json`, `<file>_MEMORY.json`
 
 **Data loading and analysis** ([porter_bench/utils.py](porter_bench/utils.py), [porter_bench/DataHandler.py](porter_bench/DataHandler.py)):
-- `load_record(path)` loads the latest saved benchmark run into a dict with keys `summary`, `absolutes`, `calls`, `memory`
-- `DataHandler` wraps the loaded record dict and provides `plot_times()`, `plot_memory_usage()`, `make_bars()`, `plot_crono()`
+- `load_record(path)` finds the latest run under `TICTOC_PERFORMANCE/` and returns a dict with keys `summary`, `absolutes`, `calls`, `memory`
+- `DataHandler({"run_label": record})` accepts a dict of runs for multi-run comparison; provides `plot_times()`, `plot_memory_usage()`, `make_bars()`, `plot_crono()`, `plot_cuda_memory()`
 - `TimePlotter` / `MemoryPlotter` handle matplotlib rendering; `summurize()` computes mean/min/max/quantile-filtered stats
 
 **Optional auto-save:**
