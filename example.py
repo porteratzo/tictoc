@@ -1,3 +1,5 @@
+"""Example usage of the porter_bench benchmarking library."""
+
 from random import randint, random
 
 import numpy as np
@@ -7,7 +9,8 @@ from tqdm import tqdm
 from porter_bench import TICTOC_CUDA_AVAILABLE, bench_dict
 
 
-def demo_bench_dict_usage():
+def demo_bench_dict_usage() -> None:
+    """Demonstrate basic bench_dict usage with time and memory tracking."""
     import time
 
     bench = bench_dict["test"]

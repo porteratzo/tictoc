@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-Test script to verify thread-safety of the benchmarking library.
-"""
+"""Test script to verify thread-safety of the benchmarking library."""
 
 import threading
 import time
@@ -9,7 +7,7 @@ import time
 from porter_bench import bench_dict
 
 
-def worker(worker_id, num_iterations, errors):
+def worker(worker_id: int, num_iterations: int, errors: list[Exception]) -> None:
     """Worker function that performs benchmarking operations."""
     try:
         for i in range(num_iterations):
@@ -38,13 +36,13 @@ def worker(worker_id, num_iterations, errors):
         errors.append(e)
 
 
-def test_concurrent_access():
+def test_concurrent_access() -> None:
     """Test concurrent access to the benchmarking library."""
     print("Starting thread-safety test...")
     print(f"Creating {10} worker threads with {50} iterations each...")
 
-    threads = []
-    errors = []
+    threads: list[threading.Thread] = []
+    errors: list[Exception] = []
     num_workers = 10
     num_iterations = 50
 
@@ -60,14 +58,13 @@ def test_concurrent_access():
         t.join()
 
     if errors:
-        raise ExceptionGroup("worker threads failed", errors)
+        raise errors[0]
 
     elapsed = time.time() - start_time
 
     print(f"All threads completed successfully in {elapsed:.2f} seconds!")
-    print(
-        f"Total operations: {num_workers * num_iterations * 3} (across {num_workers} threads)"
-    )
+    total_ops = num_workers * num_iterations * 3
+    print(f"Total operations: {total_ops} (across {num_workers} threads)")
     print("\nThread-safety test PASSED!")
 
     # Verify data integrity

@@ -1,3 +1,5 @@
+"""Memory benchmarking classes for tracking RAM and CUDA usage."""
+
 import gc
 import json
 import os
@@ -26,23 +28,23 @@ SPECIALS = True
 
 
 class MemoryBenchmarker:
-    """
-    A class for benchmarking performance during code execution.
+    """Track RAM (and optionally CUDA) memory usage across benchmark steps.
 
     Attributes:
         enable (bool): Whether benchmarking is enabled. Defaults to True.
         step_timer (Timer): A timer object for tracking step times.
         global_timer (Timer): A timer object for tracking overall execution time.
-        global_dict_list (List[DefaultDict[str, int]]): A list of dictionaries storing step times
-            for each step within a benchmark.
-        step_dict (DefaultDict[str, int]): A dictionary storing accumulated time for each step
-            within the current benchmark.
-        file (str): The base filename for storing benchmark results (e.g., "performance/base").
-        folder (str): The folder path for storing benchmark results derived from the base filename.
+        global_dict_list (List[DefaultDict[str, int]]): A list of dictionaries
+            storing step times for each step within a benchmark.
+        step_dict (DefaultDict[str, int]): A dictionary storing accumulated time
+            for each step within the current benchmark.
+        file (str): The base filename for storing benchmark results.
+        folder (str): The folder path derived from the base filename.
         started (bool): Flag indicating if a benchmark has been started.
     """
 
     def __init__(self, top_n: int = 0, gc_countdown_time: float = 0.1) -> None:
+        """Initialise the memory benchmarker with optional top-N object tracking."""
         self._enable = True
         self.memory_usage_list: list[dict[str, Any]] = []
         self.memory_usage: dict[str, Any] = defaultdict(list)
@@ -60,73 +62,57 @@ class MemoryBenchmarker:
         self._lock = threading.Lock()
 
     def enable_memory_tracking_in_step(self) -> None:
-        """
-        Enables memory usage tracking specifically for the step method.
-        """
+        """Enable memory usage tracking specifically for the step method."""
         with self._lock:
             self.track_memory_in_step = True
 
     def enable_max_memory(self, poll_time: float = 0.1) -> None:
+        """Enable peak-memory monitoring via a background polling thread."""
         with self._lock:
             self.track_max_memory = True
             self.MaxMemoryMonitor = MaxMemoryMonitor(poll_time)
 
     def set_top_n(self, top_n: int) -> None:
-        """
-        Sets the number of top memory-consuming objects to track.
-        """
+        """Set the number of top memory-consuming objects to track."""
         with self._lock:
             self.top_n = top_n
 
     def set_gc_time(self, set_gc_time: float) -> None:
-        """
-        Sets the number of top memory-consuming objects to track.
-        """
+        """Set the GC countdown interval in seconds."""
         with self._lock:
             self.gc_countdown.set_count_down(set_gc_time)
 
     def enable(self) -> None:
-        """
-        Enables benchmarking by setting the `enable` flag to True.
-        """
+        """Enable benchmarking by setting the `enable` flag to True."""
         with self._lock:
             self._enable = True
 
     def disable(self) -> None:
-        """
-        Disables benchmarking by setting the `enable` flag to False.
-        """
+        """Disable benchmarking by setting the `enable` flag to False."""
         with self._lock:
             self._enable = False
 
     def enable_cuda_memory_tracking(self) -> None:
-        """
-        Enables CUDA memory usage tracking.
-        """
+        """Enable CUDA memory usage tracking."""
         with self._lock:
             if TICTOC_CUDA_AVAILABLE:
                 self.track_cuda_memory = True
 
     def disable_cuda_memory_tracking(self) -> None:
-        """
-        Disables CUDA memory usage tracking.
-        """
+        """Disable CUDA memory usage tracking."""
         with self._lock:
             self.track_cuda_memory = False
 
     def start(self) -> None:
-        """
-        Starts a new benchmark by resetting the step and global timers and setting the `started`
-          flag to True.
-        """
+        """Start a new benchmark iteration by setting the `started` flag."""
         with self._lock:
             if self._enable:
                 self.started = True
 
     def gstep(self) -> None:
-        """
-        Ends the current step within a benchmark, stores accumulated step time and memory usage,
-        resets the step timer, and starts a new step.
+        """End the current step and begin the next one.
+
+        Collects memory stats, resets the step dict, and restarts tracking.
         """
         should_start_monitor = False
         monitor = None
@@ -153,10 +139,9 @@ class MemoryBenchmarker:
             monitor.start()
 
     def gstop(self) -> None:
-        """
-        Ends the current benchmark, stores accumulated step time and memory usage for the overall
-         execution,
-        and resets the `started` flag.
+        """End the current benchmark iteration.
+
+        Collects final memory stats and appends the step to the history list.
         """
         should_stop_monitor = False
         monitor = None
@@ -179,11 +164,12 @@ class MemoryBenchmarker:
             monitor.stop()
 
     def step(self, topic: str = "", extra: dict | None = None) -> None:
-        """
-        Tracks time spent on a specific step within the current benchmark.
+        """Record memory usage for a named sub-step if per-step tracking is enabled.
 
         Args:
-            topic (str, optional): The name of the step being timed. Defaults to an empty string.
+            topic (str, optional): The name of the step being timed.
+                Defaults to an empty string.
+            extra: Optional extra data to attach to the memory record.
         """
         with self._lock:
             if not (self._enable and self.track_memory_in_step):  # Check both flags
@@ -206,9 +192,10 @@ class MemoryBenchmarker:
                 self._save_stats_unsafe(topic, collected_stats, extra)
 
     def _collect_stats(self, topic: str, extra: dict | None = None) -> dict:
-        """
-        Colect the stats without saving them, saving is done in _save_stats_unsafe,
-          this is to avoid locking issues when collecting stats in step method.
+        """Collect memory stats without saving.
+
+        Saving is done in _save_stats_unsafe to avoid holding the lock during
+        potentially slow system calls.
         """
         top_memory_objects = get_top_memory_objects(self.top_n)
         cuda_memory_usage = (
@@ -226,7 +213,7 @@ class MemoryBenchmarker:
     def _save_stats_unsafe(
         self, topic: str, collected_stats: dict | None = None, extra: dict | None = None
     ) -> None:
-        """Internal method to save stats. Assumes lock is already held."""
+        """Save stats to the current step dict. Assumes the lock is already held."""
         top_memory_objects = (
             collected_stats["top_memory_objects"] if collected_stats else []
         )
@@ -255,8 +242,7 @@ class MemoryBenchmarker:
             self.memory_usage[STOP_TIME] = time()
 
     def get_cuda_memory_usage(self) -> dict[str, int]:
-        """
-        Retrieves CUDA memory usage if a GPU is available.
+        """Retrieve CUDA memory usage statistics.
 
         Returns:
             Dict[str, int]: A dictionary containing CUDA memory usage statistics.
@@ -271,15 +257,19 @@ class MemoryBenchmarker:
         return {}
 
     def save_data(self, file: str) -> None:
+        """Save memory data to disk via a MemorySaver snapshot."""
         MemorySaver(self, file).save_data()
 
 
 class MemorySaver:
+    """Serialize a MemoryBenchmarker snapshot to JSON files."""
+
     def __init__(
         self,
         benchmarker: MemoryBenchmarker,
         file: str = "performance/base",
     ) -> None:
+        """Initialise with a benchmarker reference and take a thread-safe snapshot."""
         self.file = file
         self.folder = os.path.join(*file.split("/")[:-1])
         self.benchmarker = benchmarker
@@ -293,23 +283,19 @@ class MemorySaver:
                 self.WORKING_LIST.append(self.benchmarker.memory_usage.copy())
 
     def save_data(self) -> None:
-        """
-        Saves benchmark results by generating plots, writing summaries, creating visualizations,
-        saving the global dictionary list as a JSON file, and saving memory usage data.
-        """
+        """Save memory usage data to disk."""
         # self.plot_data()
         # self.plot_cuda_data()  # Plot CUDA metrics
         self.save_memory_usage()
 
     def save_memory_usage(self) -> None:
-        """
-        Saves memory usage data to a JSON file.
-        """
+        """Write memory usage data to a JSON file."""
         final_format = self.format_json()
         with open(self.file + f"{APPENDED_MEMORY_NAME}.json", "w") as jsonfile:
             json.dump(final_format, jsonfile, indent=4)
 
     def format_json(self) -> list:
+        """Format memory step data into a JSON-serialisable list of dicts."""
         final_format = []
         for n, step_dict in enumerate(self.WORKING_LIST):
             formated_step_dict: dict[str, Any] = {"info": {}, "data": {}}
@@ -326,7 +312,10 @@ class MemorySaver:
 
 
 class MemoryPlotter:
+    """Render memory usage plots from benchmark data."""
+
     def __init__(self, folder_path: str | None = None) -> None:
+        """Initialise with an optional output folder path."""
         self.folder_path = folder_path
 
     def plot_data(
@@ -340,10 +329,7 @@ class MemoryPlotter:
         highlight: list | None = None,
         highlight_color: str = "r",
     ) -> list | None:
-        """
-        Generates a time series plot of benchmark results, highlighting outliers and missing data.
-        """
-
+        """Generate a time series plot of memory usage, with optional highlighting."""
         series = []
         totally_rejected = []
         for step_number, step_dict in enumerate(memory_data):
@@ -455,9 +441,7 @@ class MemoryPlotter:
         return totally_rejected
 
     def plot_cuda_data(self, memory_data: list) -> None:
-        """
-        Generates a plot for CUDA memory usage metrics.
-        """
+        """Generate a plot for CUDA memory usage metrics."""
         series = memory_data
         if not any(
             "cuda memory usage" in entry[key]
@@ -516,11 +500,11 @@ class MemoryPlotter:
 
 
 def get_top_memory_objects(top_n: int = 5) -> list[tuple[str, int]]:
-    """
-    Retrieves the top N memory-consuming objects along with their types and sizes.
+    """Retrieve the top N memory-consuming live Python objects.
 
     Returns:
-        List[Tuple[str, int]]: A list of tuples containing the type and size of the top objects.
+        List[Tuple[str, int]]: A list of tuples containing the type and size of
+        the top objects.
     """
     if top_n == 0:
         return []
@@ -562,7 +546,10 @@ def get_top_memory_objects(top_n: int = 5) -> list[tuple[str, int]]:
 
 
 class MaxMemoryMonitor:
+    """Monitor peak memory usage in a background polling thread."""
+
     def __init__(self, poll_time: float = 0.1) -> None:
+        """Initialise the monitor with a given polling interval."""
         self.max_memory_usage = 0
         self.running = False
         self.lock = threading.Lock()
@@ -604,6 +591,7 @@ class MaxMemoryMonitor:
 
 
 def _getr(slist: list[Any], olist: list[Any], seen: dict[int, None]) -> None:
+    """Recursively traverse object references and collect unique live objects."""
     for e in slist:
         if id(e) in seen:
             continue
@@ -617,8 +605,7 @@ def _getr(slist: list[Any], olist: list[Any], seen: dict[int, None]) -> None:
 
 
 def get_all_objects() -> list:
-    """Return a list of all live Python
-    objects, not including the list itself."""
+    """Return a list of all live Python objects, not including the list itself."""
     gcl = gc.get_objects()
     olist: list[Any] = []
     seen: dict[int, None] = {}
