@@ -1,7 +1,10 @@
+"""Utility functions for loading and processing benchmark data."""
+
 import json
 import os
 from datetime import datetime
 from glob import glob
+from typing import Any
 
 import pandas as pd
 
@@ -11,7 +14,8 @@ APPENDED_SUMMARY_NAME = "_STEP_DICT_SUMMARY"
 APPENDED_DIR_NAME = "TICTOC_PERFORMANCE"
 
 
-def load_raw_stepdict_data(path):
+def load_raw_stepdict_data(path: str) -> dict[str, Any]:
+    """Load raw step-dict JSON files from a benchmark record directory."""
     data_dict = {}
     dir_path = os.path.join(path, f"*{APPENDED_STEP_DATA_NAME}.json")
     for col in glob(dir_path, recursive=True):
@@ -24,7 +28,8 @@ def load_raw_stepdict_data(path):
     return data_dict
 
 
-def load_raw_summary_data(record_path):
+def load_raw_summary_data(record_path: str) -> dict[str, Any]:
+    """Load raw summary JSON files from a benchmark record directory."""
     data_dict = {}
     dir_path = os.path.join(record_path, f"*{APPENDED_SUMMARY_NAME}.json")
     for col in glob(dir_path, recursive=True):
@@ -37,7 +42,8 @@ def load_raw_summary_data(record_path):
     return data_dict
 
 
-def get_latest_record(path):
+def get_latest_record(path: str) -> str:
+    """Return the path of the most recently saved benchmark run."""
     files = glob(os.path.join(path, f"{APPENDED_DIR_NAME}", "*"))
     timestamp_format = "%H:%M-%d:%m:%Y"
     sorted_files = sorted(
@@ -48,7 +54,8 @@ def get_latest_record(path):
     return sorted_files[0]
 
 
-def get_absolutes(step_dict_data):
+def get_absolutes(step_dict_data: dict[str, Any]) -> dict[str, pd.DataFrame]:
+    """Build a DataFrame of per-iteration absolute step times for each benchmark."""
     DF_dict = {}
     for benchmark_key in step_dict_data:
         DF_dict[benchmark_key] = pd.DataFrame(
@@ -57,7 +64,8 @@ def get_absolutes(step_dict_data):
     return DF_dict
 
 
-def get_calls(step_dict_data):
+def get_calls(step_dict_data: dict[str, Any]) -> dict[str, pd.DataFrame]:
+    """Build a DataFrame of per-iteration individual call records for each benchmark."""
     DF_dict = {}
     for benchmark_key in step_dict_data:
         DF_dict[benchmark_key] = pd.DataFrame(
@@ -66,7 +74,8 @@ def get_calls(step_dict_data):
     return DF_dict
 
 
-def get_infos(step_dict_data):
+def get_infos(step_dict_data: dict[str, Any]) -> dict[str, pd.DataFrame]:
+    """Build a DataFrame of per-iteration info records for each benchmark."""
     DF_dict = {}
     for benchmark_key in step_dict_data:
         DF_dict[benchmark_key] = pd.DataFrame(
@@ -75,7 +84,8 @@ def get_infos(step_dict_data):
     return DF_dict
 
 
-def load_raw_memory_data(path):
+def load_raw_memory_data(path: str) -> dict[str, Any]:
+    """Load raw memory JSON files from a benchmark record directory."""
     data_dict = {}
     dir_path = os.path.join(path, f"*{APPENDED_MEMORY_NAME}.json")
     for col in glob(dir_path, recursive=True):
@@ -88,7 +98,8 @@ def load_raw_memory_data(path):
     return data_dict
 
 
-def get_data(step_dict_data):
+def get_data(step_dict_data: dict[str, Any]) -> dict[str, list[Any]]:
+    """Extract the raw data list from each benchmark's memory records."""
     DF_dict = {}
     for benchmark_key in step_dict_data:
         DF_dict[benchmark_key] = [
@@ -97,8 +108,18 @@ def get_data(step_dict_data):
     return DF_dict
 
 
-def load_record(record_path, only_latest=True):
-    record = {}
+def load_record(record_path: str, only_latest: bool = True) -> dict[str, Any]:
+    """Load a benchmark record from disk into a structured dict.
+
+    Args:
+        record_path: Path to the benchmark record directory.
+        only_latest: If True, load only the most recent run. Defaults to True.
+
+    Returns:
+        Dict with keys: summary, absolutes, calls, infos, memory,
+        _raw_data, _raw_memory.
+    """
+    record: dict[str, Any] = {}
     if only_latest:
         record_path = get_latest_record(record_path)
     step_dict_data = load_raw_stepdict_data(record_path)
@@ -115,7 +136,12 @@ def load_record(record_path, only_latest=True):
     return record
 
 
-def find_clusters(ordered_crono, max_length, cluster_filter):
+def find_clusters(
+    ordered_crono: list[dict[str, Any]],
+    max_length: int,
+    cluster_filter: float,
+) -> list[dict[str, Any]]:
+    """Detect and collapse repeated step sequences in a chronological series."""
     clusters = []
     new_crono = []
     i = 0
@@ -167,7 +193,11 @@ def find_clusters(ordered_crono, max_length, cluster_filter):
     return new_crono
 
 
-def filter_no_change(filter_no_change, ordered_crono):
+def filter_no_change(
+    filter_no_change: Any,
+    ordered_crono: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Filter out chronological entries where memory did not change significantly."""
     if not isinstance(filter_no_change, float):
         filter_no_change = 0.05
     memory_vals = [i["total"] for i in ordered_crono]

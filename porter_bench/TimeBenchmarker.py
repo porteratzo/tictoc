@@ -1,11 +1,15 @@
+"""Time benchmarking classes for measuring per-step execution time."""
+
 import json
 import os
+import threading
 from collections import defaultdict
 from time import time
-from typing import Dict, List
+from typing import Any, DefaultDict, Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.axes import Axes
 from matplotlib.container import BarContainer
 from matplotlib.lines import Line2D
 from scipy.ndimage import gaussian_filter1d
@@ -24,152 +28,181 @@ SPECIAL_NAMES = [START_TIME, STOP_TIME]
 
 
 class TimeBenchmarker:
-    """
-    A class for benchmarking performance during code execution.
+    """Measure and store per-step execution times for a single benchmark run.
 
     Attributes:
         enable (bool): Whether benchmarking is enabled. Defaults to True.
         step_timer (Timer): A timer object for tracking step times.
         global_timer (Timer): A timer object for tracking overall execution time.
-        global_dict_list (List[DefaultDict[str, int]]): A list of dictionaries storing step times
-            for each step within a benchmark.
-        step_dict (DefaultDict[str, int]): A dictionary storing accumulated time for each step
-            within the current benchmark.
+        global_dict_list (List[DefaultDict[str, int]]): A list of dictionaries
+            storing step times for each step within a benchmark.
+        step_dict (DefaultDict[str, int]): A dictionary storing accumulated time
+            for each step within the current benchmark.
         started (bool): Flag indicating if a benchmark has been started.
     """
 
     def __init__(self) -> None:
-        self._enable = True
-        self.step_timer = Timer()
-        self.global_timer = Timer()
+        """Initialise timers, step storage, and the threading lock."""
+        self._enable: bool = True
+        self.step_timer: Timer = Timer()
+        self.global_timer: Timer = Timer()
 
-        self.step_dict_list: List[Dict[str, int]] = []
-        self.step_dict: Dict[str, list] = defaultdict(list)
+        self.step_dict_list: List[Dict[str, Any]] = []
+        self.step_dict: Dict[str, Any] = defaultdict(list)
 
-        self.started = False
-        self.crono_counter = 0
+        self.started: bool = False
+        self.crono_counter: int = 0
+        self._lock: threading.Lock = threading.Lock()
 
     def enable(self) -> None:
-        """
-        Enables benchmarking by setting the `enable` flag to True.
-        """
-        self._enable = True
+        """Enable benchmarking by setting the `enable` flag to True."""
+        with self._lock:
+            self._enable = True
 
     def disable(self) -> None:
-        """
-        Disables benchmarking by setting the `enable` flag to False.
-        """
-        self._enable = False
+        """Disable benchmarking by setting the `enable` flag to False."""
+        with self._lock:
+            self._enable = False
 
     def start(self) -> None:
+        """Start a new benchmark iteration.
+
+        Resets the step and global timers and sets the `started` flag to True.
         """
-        Starts a new benchmark by resetting the step and global timers and setting the `started`
-          flag to True.
-        """
-        if self._enable:
-            self.step_timer.tic()
-            self.global_timer.tic()
-            self.started = True
+        with self._lock:
+            if self._enable:
+                self.step_timer.tic()
+                self.global_timer.tic()
+                self.started = True
 
     def gstep(self) -> None:
+        """End the current step and begin the next one.
+
+        Stores accumulated step data, resets the timer, and starts a new step.
         """
-        Ends the current step within a benchmark, stores accumulated step time and memory usage,
-        resets the step timer, and starts a new step.
-        """
-        if self._enable:
-            self.gstop()
-            self.crono_counter = 0
-            self.step_dict = defaultdict(list)
-            self.step_dict[START_TIME] = time()
-            self.start()
+        with self._lock:
+            if self._enable:
+                # Call gstop logic inline to avoid recursive locking
+                if self.started:
+                    if "GLOBAL" not in self.step_dict.keys():
+                        self.step_dict["GLOBAL"] = [
+                            {
+                                "time": self.global_timer.ttoc(),
+                                "crono_counter": self.crono_counter,
+                            }
+                        ]
+                    self.step_dict[STOP_TIME] = time()
+                    self.step_dict_list.append(self.step_dict)
+                    self.started = False
+
+                # Reset for new step
+                self.crono_counter = 0
+                self.step_dict = defaultdict(list)
+                self.step_dict[START_TIME] = time()
+
+                # Call start logic inline to avoid recursive locking
+                self.step_timer.tic()
+                self.global_timer.tic()
+                self.started = True
 
     def gstop(self) -> None:
-        """
-        Ends the current benchmark, stores accumulated step time and memory usage for the overall
-         execution,
-        and resets the `started` flag.
-        """
-        if self._enable:
-            if self.started:
-                if "GLOBAL" not in self.step_dict.keys():
-                    self.step_dict["GLOBAL"] = [
-                        {
-                            "time": self.global_timer.ttoc(),
-                            "crono_counter": self.crono_counter,
-                        }
-                    ]
-                self.step_dict[STOP_TIME] = time()
-                self.step_dict_list.append(self.step_dict)
-                self.started = False
+        """End the current benchmark iteration.
 
-    def step(self, topic: str = "", extra=None) -> None:
+        Stores accumulated step time and resets the `started` flag.
         """
-        Tracks time spent on a specific step within the current benchmark.
+        with self._lock:
+            if self._enable:
+                if self.started:
+                    if "GLOBAL" not in self.step_dict.keys():
+                        self.step_dict["GLOBAL"] = [
+                            {
+                                "time": self.global_timer.ttoc(),
+                                "crono_counter": self.crono_counter,
+                            }
+                        ]
+                    self.step_dict[STOP_TIME] = time()
+                    self.step_dict_list.append(self.step_dict)
+                    self.started = False
+
+    def step(self, topic: str = "", extra: Any = None) -> None:
+        """Record the elapsed time for a named sub-step.
 
         Args:
-            topic (str, optional): The name of the step being timed. Defaults to an empty string.
+            topic (str, optional): The name of the step being timed.
+                Defaults to an empty string.
+            extra: Optional extra data to attach to the step record.
         """
-        if self._enable:
-            self.step_dict[topic].append(
-                {
-                    "time": self.step_timer.ttoc(),
-                    "crono_counter": self.crono_counter,
-                    "extra": extra,
-                }
-            )
-            self.crono_counter += 1
+        with self._lock:
+            if self._enable:
+                self.step_dict[topic].append(
+                    {
+                        "time": self.step_timer.ttoc(),
+                        "crono_counter": self.crono_counter,
+                        "extra": extra,
+                    }
+                )
+                self.crono_counter += 1
 
-    def save_data(self, file):
+    def save_data(self, file: str) -> None:
+        """Save step data to disk via a TimerSaver snapshot."""
         TimerSaver(self, file).save_data()
 
 
 class TimerSaver:
+    """Serialize a TimeBenchmarker snapshot to JSON files."""
+
     def __init__(
         self, benchmarker: TimeBenchmarker, file: str = "performance/base"
     ) -> None:
+        """Initialise with a benchmarker reference and take a thread-safe snapshot."""
         self.file = file
         self.folder = os.path.join(*file.split("/")[:-1])
         self.benchmarker = benchmarker
 
-        self.series = defaultdict(dict)
+        self.series: DefaultDict[str, Dict[int, float]] = defaultdict(dict)
 
-        self.WORKING_LIST = self.benchmarker.step_dict_list.copy()
-        if self.benchmarker.started:
-            self.WORKING_LIST.append(self.benchmarker.step_dict)
+        # Thread-safe snapshot of benchmarker data
+        with self.benchmarker._lock:
+            self.WORKING_LIST = self.benchmarker.step_dict_list.copy()
+            if self.benchmarker.started:
+                self.WORKING_LIST.append(self.benchmarker.step_dict.copy())
 
-    def summarize_data(self):
+    def summarize_data(self) -> None:
+        """Compute summary statistics and populate `df_means` and `series`."""
         self.df_means, self.series = summurize(self.WORKING_LIST)
 
     def save_data(self) -> None:
+        """Write summary and raw step data to disk."""
         self.write_summary()
-        # self.make_bars()
-        # self.plot_data()
         self.save_json()
 
     def write_summary(self) -> None:
-        """
-        Writes a summary of the benchmark results to a Json file.
+        """Write a summary of benchmark results to a JSON file.
 
         Args:
-            df_means (Dict[str, float]): A dictionary containing the mean times for each step.
+            df_means (Dict[str, float]): A dictionary containing the mean times
+                for each step.
         """
         self.summarize_data()
         with open(self.file + f"{APPENDED_SUMMARY_NAME}.json", "w") as jsonfile:
             json.dump(self.df_means, jsonfile, indent=4)
 
     def save_json(self) -> None:
-        """
-        Saves the global dictionary list as a JSON file.
-        """
+        """Save the raw step-dict list as a JSON file."""
         final_format = self.format_json()
 
         with open(self.file + f"{APPENDED_STEP_DATA_NAME}.json", "w") as jsonfile:
             json.dump(final_format, jsonfile, indent=4)
 
-    def format_json(self):
+    def format_json(self) -> List[Dict[str, Any]]:
+        """Format step data into a JSON-serialisable list of dicts."""
         final_format = []
         for n, step_dict in enumerate(self.WORKING_LIST):
-            formated_step_dict = {"absolutes": {}, "info": {}, "individual_calls": {}}
+            formated_step_dict: Dict[str, Dict[str, Any]] = {
+                "absolutes": {},
+                "info": {},
+                "individual_calls": {},
+            }
             working_keys = list(step_dict.keys())
             for key in working_keys:
                 if key in SPECIAL_NAMES:
@@ -186,17 +219,27 @@ class TimerSaver:
 
 
 class TimePlotter:
-    def __init__(self, folder_path: str = None) -> None:
+    """Render time series and bar chart plots from benchmark data."""
+
+    def __init__(self, folder_path: Optional[str] = None) -> None:
+        """Initialise with an optional output folder path."""
         self.folder_path = folder_path
-        self.series = defaultdict(dict)
+        self.series: DefaultDict[str, Dict[int, float]] = defaultdict(dict)
 
-    def make_bars(self, summary_data, label="", filter_val=0, figsize=(18, 6)) -> None:
-        """
-        Creates bar chart visualizations of the benchmark results with two subplots:
-        one for the means and another for the quantile-filtered means.
+    def make_bars(
+        self,
+        summary_data: Dict[str, Dict[str, float]],
+        label: str = "",
+        filter_val: float = 0,
+        figsize: Tuple[int, int] = (18, 6),
+    ) -> None:
+        """Create bar chart visualisations of benchmark step means.
+
+        Renders two subplots: one for the raw means and one for
+        quantile-filtered means.
         """
 
-        def rescale(y):
+        def rescale(y: Any) -> Any:
             if (np.max(y) - np.min(y)) == 0:
                 return 0
             return (y - np.min(y)) / (np.max(y) - np.min(y))
@@ -266,15 +309,16 @@ class TimePlotter:
 
     def plot_data(
         self,
-        absolutes_data,
-        label="",
-        linestyle=None,
-        smooth: float = None,
-        percentile=75,
-        max_mult=4,
+        absolutes_data: Any,
+        label: str = "",
+        linestyle: Optional[str] = None,
+        smooth: Optional[float] = None,
+        percentile: int = 75,
+        max_mult: float = 4,
     ) -> None:
-        """
-        Generates a time series plot of benchmark results, highlighting outliers and missing data.
+        """Generate a time series plot of benchmark results.
+
+        Highlights outliers and marks iterations where no data was recorded.
         """
         seriesDF = absolutes_data
         if len(seriesDF) == 0:
@@ -286,15 +330,15 @@ class TimePlotter:
         else:
             outlier_max = float("inf")
         for n, step_name in enumerate(seriesDF.keys()):
-            X = np.arange(max_length + 1)
-            Y = np.zeros(max_length + 1)
+            X = np.arange(max_length)
+            Y = np.zeros(max_length)
 
             real_values = np.asarray(list(seriesDF[step_name]))
-            real_steps = list(seriesDF[step_name].keys())
+            real_steps = list(seriesDF[step_name].dropna().index)
             for step_number, step_time in seriesDF[step_name].items():
                 Y[step_number] = step_time
 
-            Q3 = np.percentile(real_values, 75, interpolation="midpoint")
+            Q3 = np.percentile(real_values, 75, method="midpoint")
             upper_bound = Y > outlier_max
 
             Y = np.nan_to_num(Y, nan=0)
@@ -357,7 +401,8 @@ class TimePlotter:
             handles=plt.gca().get_legend_handles_labels()[0] + custom_legend_elements
         )
 
-    def crono_plot(self, call_data, label=""):
+    def crono_plot(self, call_data: Any, label: str = "") -> None:
+        """Plot a chronological timeline of step call times."""
         series = []
         filter_no_change_val = None
         cluster = 5
@@ -365,6 +410,8 @@ class TimePlotter:
         for step_number, step_dict in call_data.iterrows():
             crono_series = {}
             for step_name in step_dict.keys():
+                if step_name == "GLOBAL":
+                    continue
                 if isinstance(step_dict[step_name], list):
                     for record in step_dict[step_name]:
                         crono_series[record["crono_counter"]] = {
@@ -374,7 +421,7 @@ class TimePlotter:
                         }
             ordered_crono = [crono_series[n] for n in sorted(crono_series.keys())]
             if filter_no_change_val is not None:
-                ordered_crono = filter_no_change(filter_no_change_val, ordered_crono)
+                ordered_crono, _ = filter_no_change(filter_no_change_val, ordered_crono)
 
             if cluster > 0:
                 ordered_crono = find_clusters(ordered_crono, cluster, cluster_filter)
@@ -395,9 +442,8 @@ class TimePlotter:
         plt.grid(True)
 
 
-def label_bar_heights(bar_container: BarContainer, axis) -> None:
-    """
-    Adds labels to the bar chart indicating the height of each bar.
+def label_bar_heights(bar_container: BarContainer, axis: Axes) -> None:
+    """Add height labels to each bar in a bar chart.
 
     Args:
         bar_container (BarContainer): The container for the bars in the chart.
@@ -415,8 +461,22 @@ def label_bar_heights(bar_container: BarContainer, axis) -> None:
         )
 
 
-def summurize(working_list, percentile=75, filter_below=0):
-    series = defaultdict(dict)
+def summurize(
+    working_list: List[Dict[str, Any]],
+    percentile: int = 75,
+    filter_below: float = 0,
+) -> Tuple[Dict[str, Dict[str, float]], DefaultDict[str, Dict[int, float]]]:
+    """Compute per-step mean, min, max, and quantile-filtered statistics.
+
+    Args:
+        working_list: List of step dicts with timing data.
+        percentile: Percentile for quantile filtering. Defaults to 75.
+        filter_below: Minimum value threshold. Defaults to 0.
+
+    Returns:
+        Tuple of (summary dict keyed by step name, series defaultdict).
+    """
+    series: DefaultDict[str, Dict[int, float]] = defaultdict(dict)
     for step_number, step_dict in enumerate(working_list):
         for step_name in step_dict.keys():
             if step_name in SPECIAL_NAMES:
