@@ -2,6 +2,55 @@
 requires = ["setuptools>=78.1.1", "wheel", "setuptools_scm[toml]>=6.2"]
 build-backend = "setuptools.build_meta"
 
+[project]
+name = "porter_bench"
+version = "0.1.0"
+description = "Scripts for benchmarking"
+readme = "README.md"
+license = { text = "MIT License" }
+authors = [
+    { name = "Omar Montoya", email = "omar.alfonso.montoya@hotmail.com" },
+]
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "matplotlib>=3.8.0,<4.0.0",
+    "numpy>=1.24.0,<3.0.0",
+    "scipy>=1.10.0,<2.0.0",
+    "psutil>=5.9.0,<6.0.0",
+    "pandas>=2.0.0,<3.0.0",
+]
+classifiers = [
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[project.urls]
+Homepage = "https://github.com/porteratzo/porter_bench"
+
+[project.optional-dependencies]
+examples = [
+    "torch>=2.0.0",
+    "tqdm>=4.65.0",
+]
+dev = [
+    "black>=24.1.1",
+    "isort>=5.13.2",
+    "flake8>=7.0.0",
+    "flake8-docstrings>=1.7.0",
+    "Flake8-pyproject>=1.2.3",
+    "pylint>=3.0.0",
+    "mypy>=1.8.0",
+    "pre-commit>=3.6.0",
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+
 [tool.black]
 line-length = 88
 target-version = ['py310', 'py311', 'py312']
@@ -57,3 +106,23 @@ disable = [
 
 [tool.pylint.format]
 max-line-length = 88
+
+[tool.flake8]
+max-line-length = 88
+extend-ignore = ["E203", "E266", "E501", "W503", "D100", "D101", "D102", "D103", "D104", "D105", "D107", "D200", "D202", "D205", "D209", "D400", "D401"]
+exclude = [
+    ".git",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "build",
+    "dist",
+    "*.egg-info",
+    ".tox",
+    ".mypy_cache",
+]
+per-file-ignores = [
+    "__init__.py:F401",
+    "plot.py:F401",
+    "tictoc/Benchmarker.py:F401",
+]

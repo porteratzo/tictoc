@@ -30,7 +30,7 @@ class Timer:
         """
         Resets the timer by setting the starting time.
         """
-        self.clock_time: float = time.perf_counter()
+        self.clock_time = time.perf_counter()
 
     def toc(self) -> float:
         """
@@ -145,12 +145,12 @@ class TimedCounter:
             is enabled. Defaults to True. If disabled, timer and counter
             functionality are not available.
         """
+        self.enabled: bool = enabled
         if enabled:
-            self.timer = Timer()
-            self.counter = 0
-            self.stop_time = 0
-            self.stop_count = 0
-        self.enabled = enabled
+            self.timer: Timer = Timer()
+            self.counter: int = 0
+            self.stop_time: float = 0.0
+            self.stop_count: int = 0
 
     def start(self) -> None:
         """
@@ -176,7 +176,7 @@ class TimedCounter:
         if self.enabled:
             self.counter += 1
 
-    def get_frequency(self) -> float:
+    def get_frequency(self) -> Optional[float]:
         """
         Calculates the average count rate (counts per second) if enabled.
 

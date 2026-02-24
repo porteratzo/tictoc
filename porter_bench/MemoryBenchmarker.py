@@ -5,7 +5,7 @@ import sys
 import threading
 from collections import defaultdict
 from time import sleep, time
-from typing import Dict, List, Tuple, Union
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -42,10 +42,10 @@ class MemoryBenchmarker:
         started (bool): Flag indicating if a benchmark has been started.
     """
 
-    def __init__(self, top_n: int = 0, gc_countdown_time=0.1) -> None:
+    def __init__(self, top_n: int = 0, gc_countdown_time: float = 0.1) -> None:
         self._enable = True
-        self.memory_usage_list: List[Dict[str, Union[int, str]]] = []
-        self.memory_usage: Dict[str, list] = defaultdict(list)
+        self.memory_usage_list: list[dict[str, Any]] = []
+        self.memory_usage: dict[str, Any] = defaultdict(list)
 
         self.started = False
         self.track_memory_in_step = (
@@ -66,7 +66,7 @@ class MemoryBenchmarker:
         with self._lock:
             self.track_memory_in_step = True
 
-    def enable_max_memory(self, poll_time=0.1):
+    def enable_max_memory(self, poll_time: float = 0.1) -> None:
         with self._lock:
             self.track_max_memory = True
             self.MaxMemoryMonitor = MaxMemoryMonitor(poll_time)
@@ -132,17 +132,21 @@ class MemoryBenchmarker:
         monitor = None
 
         with self._lock:
+            if not self._enable:
+                return
+            should_start_monitor = self.track_max_memory
+            monitor = self.MaxMemoryMonitor if should_start_monitor else None
+
+        collected_stats = self._collect_stats("gstep")
+
+        with self._lock:
             if self._enable:
                 self.memory_usage = defaultdict(list)
                 self.crono_counter = 0
-                self._save_stats_unsafe("gstep")
+                self._save_stats_unsafe("gstep", collected_stats)
 
                 # Inline start logic to avoid recursive locking
                 self.started = True
-
-                # Check if we need to start MaxMemoryMonitor
-                should_start_monitor = self.track_max_memory
-                monitor = self.MaxMemoryMonitor if should_start_monitor else None
 
         # Start monitor outside the lock to avoid potential deadlock
         if should_start_monitor and monitor is not None:
@@ -158,21 +162,23 @@ class MemoryBenchmarker:
         monitor = None
 
         with self._lock:
-            if self._enable:
-                if self.started:
-                    self.started = False
-                    self._save_stats_unsafe("gstop")
-                    self.memory_usage_list.append(self.memory_usage)
+            if not (self._enable and self.started):
+                return
+            self.started = False
+            should_stop_monitor = self.track_max_memory
+            monitor = self.MaxMemoryMonitor if should_stop_monitor else None
 
-                    # Check if we need to stop MaxMemoryMonitor
-                    should_stop_monitor = self.track_max_memory
-                    monitor = self.MaxMemoryMonitor if should_stop_monitor else None
+        collected_stats = self._collect_stats("gstop")
+
+        with self._lock:
+            self._save_stats_unsafe("gstop", collected_stats)
+            self.memory_usage_list.append(self.memory_usage)
 
         # Stop monitor outside the lock to avoid potential deadlock
         if should_stop_monitor and monitor is not None:
             monitor.stop()
 
-    def step(self, topic: str = "", extra=None) -> None:
+    def step(self, topic: str = "", extra: dict | None = None) -> None:
         """
         Tracks time spent on a specific step within the current benchmark.
 
@@ -180,22 +186,61 @@ class MemoryBenchmarker:
             topic (str, optional): The name of the step being timed. Defaults to an empty string.
         """
         with self._lock:
-            if self._enable and self.track_memory_in_step:  # Check both flags
-                if self.gc_countdown.completed():
-                    gc.collect()
-                    self.gc_countdown.reset()
-                self._save_stats_unsafe(topic, extra=extra)
+            if not (self._enable and self.track_memory_in_step):  # Check both flags
+                return
+            should_gc = self.gc_countdown.completed()
+            if should_gc:
+                self.gc_countdown.reset()
 
-    def _save_stats_unsafe(self, topic, extra=None):
-        """Internal method to save stats. Assumes lock is already held."""
+        if should_gc:
+            gc.collect()
+
+        with self._lock:
+            if not (self._enable and self.track_memory_in_step):
+                return
+
+        collected_stats = self._collect_stats(topic, extra)
+
+        with self._lock:
+            if self._enable and self.track_memory_in_step:
+                self._save_stats_unsafe(topic, collected_stats, extra)
+
+    def _collect_stats(self, topic: str, extra: dict | None = None) -> dict:
+        """
+        Colect the stats without saving them, saving is done in _save_stats_unsafe,
+          this is to avoid locking issues when collecting stats in step method.
+        """
         top_memory_objects = get_top_memory_objects(self.top_n)
         cuda_memory_usage = (
             self.get_cuda_memory_usage() if self.track_cuda_memory else None
         )
         max_used = self.MaxMemoryMonitor.step() if self.track_max_memory else None
+        total_memory_usage = psutil.Process().memory_info().rss
+        return {
+            "cuda memory usage": cuda_memory_usage,
+            "top_memory_objects": top_memory_objects,
+            "max memory usage": max_used,
+            "total memory usage": total_memory_usage,
+        }
+
+    def _save_stats_unsafe(
+        self, topic: str, collected_stats: dict | None = None, extra: dict | None = None
+    ) -> None:
+        """Internal method to save stats. Assumes lock is already held."""
+        top_memory_objects = (
+            collected_stats["top_memory_objects"] if collected_stats else []
+        )
+        cuda_memory_usage = (
+            collected_stats["cuda memory usage"] if collected_stats else None
+        )
+        max_used = collected_stats["max memory usage"] if collected_stats else None
+        total_memory_usage = (
+            collected_stats["total memory usage"] if collected_stats else None
+        )
+
         self.memory_usage[topic].append(
             {
-                "total memory usage": psutil.Process().memory_info().rss,
+                "total memory usage": total_memory_usage,
                 "cuda memory usage": cuda_memory_usage,
                 "top_memory_objects": top_memory_objects,
                 "crono_counter": self.crono_counter,
@@ -209,12 +254,7 @@ class MemoryBenchmarker:
         elif topic == "gstop":
             self.memory_usage[STOP_TIME] = time()
 
-    def save_stats(self, topic, extra=None):
-        """Thread-safe wrapper for _save_stats_unsafe."""
-        with self._lock:
-            self._save_stats_unsafe(topic, extra)
-
-    def get_cuda_memory_usage(self) -> Dict[str, int]:
+    def get_cuda_memory_usage(self) -> dict[str, int]:
         """
         Retrieves CUDA memory usage if a GPU is available.
 
@@ -230,7 +270,7 @@ class MemoryBenchmarker:
             }
         return {}
 
-    def save_data(self, file):
+    def save_data(self, file: str) -> None:
         MemorySaver(self, file).save_data()
 
 
@@ -244,7 +284,7 @@ class MemorySaver:
         self.folder = os.path.join(*file.split("/")[:-1])
         self.benchmarker = benchmarker
 
-        self.series = []
+        self.series: list[Any] = []
 
         # Thread-safe snapshot of benchmarker data
         with self.benchmarker._lock:
@@ -269,10 +309,10 @@ class MemorySaver:
         with open(self.file + f"{APPENDED_MEMORY_NAME}.json", "w") as jsonfile:
             json.dump(final_format, jsonfile, indent=4)
 
-    def format_json(self):
+    def format_json(self) -> list:
         final_format = []
         for n, step_dict in enumerate(self.WORKING_LIST):
-            formated_step_dict = {"info": {}, "data": {}}
+            formated_step_dict: dict[str, Any] = {"info": {}, "data": {}}
             working_keys = list(step_dict.keys())
             for key in working_keys:
                 if key in SPECIAL_NAMES:
@@ -286,20 +326,20 @@ class MemorySaver:
 
 
 class MemoryPlotter:
-    def __init__(self, folder_path: str = None) -> None:
+    def __init__(self, folder_path: str | None = None) -> None:
         self.folder_path = folder_path
 
     def plot_data(
         self,
-        memory_data,
-        label="",
-        filter_no_change_val=None,
-        cluster=3,
-        cluster_filter=0.05,
-        plot_extra=None,
-        highlight=[],
-        highlight_color="r",
-    ) -> None:
+        memory_data: list,
+        label: str = "",
+        filter_no_change_val: float | None = None,
+        cluster: int = 3,
+        cluster_filter: float = 0.05,
+        plot_extra: str | list[str] | None = None,
+        highlight: list | None = None,
+        highlight_color: str = "r",
+    ) -> list | None:
         """
         Generates a time series plot of benchmark results, highlighting outliers and missing data.
         """
@@ -345,7 +385,7 @@ class MemoryPlotter:
 
         # plt.figure(figsize=(18, 6))
         if len(series) == 0:
-            return
+            return None
         total_mem = [val["total"] for val in series]
 
         top_objects = np.array([val["top_objects"] for val in series])
@@ -391,7 +431,7 @@ class MemoryPlotter:
 
         max_height = max(total_mem_mb)
         highlight_label_added = False
-        if len(highlight) > 0:
+        if highlight and len(highlight) > 0:
             for x_name, name in zip(x_names, names):
                 if "_".join(name.split("_")[1:]) in highlight:
                     rect = plt.Rectangle(
@@ -414,7 +454,7 @@ class MemoryPlotter:
         plt.grid(True)
         return totally_rejected
 
-    def plot_cuda_data(self, memory_data) -> None:
+    def plot_cuda_data(self, memory_data: list) -> None:
         """
         Generates a plot for CUDA memory usage metrics.
         """
@@ -454,7 +494,7 @@ class MemoryPlotter:
 
         # Plot CUDA metrics
         plt.figure(figsize=(18, 6))
-        plt.title(f"{os.path.basename(self.file)} - CUDA Memory Usage")
+        plt.title(f"{os.path.basename(self.folder_path or '')} - CUDA Memory Usage")
         x_names = np.arange(len(step_names))
 
         plt.plot(x_names, allocated, label="Allocated (MB)")
@@ -467,10 +507,15 @@ class MemoryPlotter:
         plt.xlabel("Step")
         plt.tight_layout()
         plt.legend()
-        plt.savefig(self.file + "_CUDA_MEMORY.png", dpi=200)
+        save_path = (
+            os.path.join(self.folder_path, "CUDA_MEMORY.png")
+            if self.folder_path
+            else "CUDA_MEMORY.png"
+        )
+        plt.savefig(save_path, dpi=200)
 
 
-def get_top_memory_objects(top_n: int = 5) -> List[Tuple[str, int]]:
+def get_top_memory_objects(top_n: int = 5) -> list[tuple[str, int]]:
     """
     Retrieves the top N memory-consuming objects along with their types and sizes.
 
@@ -485,7 +530,7 @@ def get_top_memory_objects(top_n: int = 5) -> List[Tuple[str, int]]:
             all_objects = gc.get_objects()
         else:
             all_objects = get_all_objects()
-        top_memory_objects = []
+        top_memory_objects: list[tuple[str, int]] = []
         for obj in all_objects:
             obj_size = sys.getsizeof(obj)
             try:
@@ -517,27 +562,27 @@ def get_top_memory_objects(top_n: int = 5) -> List[Tuple[str, int]]:
 
 
 class MaxMemoryMonitor:
-    def __init__(self, poll_time=0.1):
+    def __init__(self, poll_time: float = 0.1) -> None:
         self.max_memory_usage = 0
         self.running = False
         self.lock = threading.Lock()
         self.poll_time = poll_time
-        self.thread = None
+        self.thread: threading.Thread | None = None
 
-    def start(self):
+    def start(self) -> None:
         """Start the memory monitoring thread."""
         self.running = True
         self.max_memory_usage = 0
         self.thread = threading.Thread(target=self._monitor_memory)
         self.thread.start()
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop the memory monitoring thread."""
         self.running = False
         if self.thread is not None:
             self.thread.join()
 
-    def _monitor_memory(self):
+    def _monitor_memory(self) -> None:
         """Monitor memory usage in a separate thread."""
         while self.running:
             # Get current memory usage
@@ -550,7 +595,7 @@ class MaxMemoryMonitor:
             # Sleep for 0.1 seconds
             sleep(self.poll_time)
 
-    def step(self):
+    def step(self) -> int:
         """Reset and return the max memory usage since the last step."""
         with self.lock:
             max_usage = self.max_memory_usage
@@ -558,7 +603,7 @@ class MaxMemoryMonitor:
         return max_usage
 
 
-def _getr(slist, olist, seen):
+def _getr(slist: list[Any], olist: list[Any], seen: dict[int, None]) -> None:
     for e in slist:
         if id(e) in seen:
             continue
@@ -571,12 +616,12 @@ def _getr(slist, olist, seen):
     # The public function.
 
 
-def get_all_objects():
+def get_all_objects() -> list:
     """Return a list of all live Python
     objects, not including the list itself."""
     gcl = gc.get_objects()
-    olist = []
-    seen = {}
+    olist: list[Any] = []
+    seen: dict[int, None] = {}
     # Just in case:
     seen[id(gcl)] = None
     seen[id(olist)] = None

@@ -90,10 +90,13 @@ class Benchmarker:
         with self._lock:
             if not self.enabled:
                 return
-            self.started = True
 
         # Call time_benchmaker.start() outside lock to avoid potential deadlock
         self.time_benchmaker.start()
+
+        with self._lock:
+            if self.enabled:
+                self.started = True
 
     def gstep(self) -> None:
         """
@@ -127,6 +130,7 @@ class Benchmarker:
 
             register_memory = self.register_memory_timings
             save_on_gstop = self.save_on_gstop
+            self.started = False
 
         # Perform benchmarking operations outside lock
         self.time_benchmaker.step("gstop")
@@ -135,18 +139,11 @@ class Benchmarker:
             self.time_benchmaker.step("gstop_memory")
         self.time_benchmaker.gstop()
 
-        with self._lock:
-            self.started = False
-
-            # Check if we need to save
-            should_save = False
-            if save_on_gstop > 0:
-                with self.time_benchmaker._lock:
-                    if len(self.time_benchmaker.step_dict_list) % save_on_gstop == 0:
-                        should_save = True
-
-        if should_save:
-            self.save_data()
+        if save_on_gstop > 0:
+            with self.time_benchmaker._lock:
+                num_steps = len(self.time_benchmaker.step_dict_list)
+            if num_steps % save_on_gstop == 0:
+                self.save_data()
 
     def step(self, topic: str = "", memory_extra=None, time_extra=None) -> None:
         """

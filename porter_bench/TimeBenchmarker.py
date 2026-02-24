@@ -3,10 +3,11 @@ import os
 import threading
 from collections import defaultdict
 from time import time
-from typing import Dict, List
+from typing import Any, DefaultDict, Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.axes import Axes
 from matplotlib.container import BarContainer
 from matplotlib.lines import Line2D
 from scipy.ndimage import gaussian_filter1d
@@ -40,16 +41,16 @@ class TimeBenchmarker:
     """
 
     def __init__(self) -> None:
-        self._enable = True
-        self.step_timer = Timer()
-        self.global_timer = Timer()
+        self._enable: bool = True
+        self.step_timer: Timer = Timer()
+        self.global_timer: Timer = Timer()
 
-        self.step_dict_list: List[Dict[str, int]] = []
-        self.step_dict: Dict[str, list] = defaultdict(list)
+        self.step_dict_list: List[Dict[str, Any]] = []
+        self.step_dict: Dict[str, Any] = defaultdict(list)
 
-        self.started = False
-        self.crono_counter = 0
-        self._lock = threading.Lock()
+        self.started: bool = False
+        self.crono_counter: int = 0
+        self._lock: threading.Lock = threading.Lock()
 
     def enable(self) -> None:
         """
@@ -144,7 +145,7 @@ class TimeBenchmarker:
                 )
                 self.crono_counter += 1
 
-    def save_data(self, file):
+    def save_data(self, file: str) -> None:
         TimerSaver(self, file).save_data()
 
 
@@ -156,7 +157,7 @@ class TimerSaver:
         self.folder = os.path.join(*file.split("/")[:-1])
         self.benchmarker = benchmarker
 
-        self.series = defaultdict(dict)
+        self.series: DefaultDict[str, Dict[int, float]] = defaultdict(dict)
 
         # Thread-safe snapshot of benchmarker data
         with self.benchmarker._lock:
@@ -164,7 +165,7 @@ class TimerSaver:
             if self.benchmarker.started:
                 self.WORKING_LIST.append(self.benchmarker.step_dict.copy())
 
-    def summarize_data(self):
+    def summarize_data(self) -> None:
         self.df_means, self.series = summurize(self.WORKING_LIST)
 
     def save_data(self) -> None:
@@ -193,10 +194,14 @@ class TimerSaver:
         with open(self.file + f"{APPENDED_STEP_DATA_NAME}.json", "w") as jsonfile:
             json.dump(final_format, jsonfile, indent=4)
 
-    def format_json(self):
+    def format_json(self) -> List[Dict[str, Any]]:
         final_format = []
         for n, step_dict in enumerate(self.WORKING_LIST):
-            formated_step_dict = {"absolutes": {}, "info": {}, "individual_calls": {}}
+            formated_step_dict: Dict[str, Dict[str, Any]] = {
+                "absolutes": {},
+                "info": {},
+                "individual_calls": {},
+            }
             working_keys = list(step_dict.keys())
             for key in working_keys:
                 if key in SPECIAL_NAMES:
@@ -213,11 +218,17 @@ class TimerSaver:
 
 
 class TimePlotter:
-    def __init__(self, folder_path: str = None) -> None:
+    def __init__(self, folder_path: Optional[str] = None) -> None:
         self.folder_path = folder_path
-        self.series = defaultdict(dict)
+        self.series: DefaultDict[str, Dict[int, float]] = defaultdict(dict)
 
-    def make_bars(self, summary_data, label="", filter_val=0, figsize=(18, 6)) -> None:
+    def make_bars(
+        self,
+        summary_data: Dict[str, Dict[str, float]],
+        label: str = "",
+        filter_val: float = 0,
+        figsize: Tuple[int, int] = (18, 6),
+    ) -> None:
         """
         Creates bar chart visualizations of the benchmark results with two subplots:
         one for the means and another for the quantile-filtered means.
@@ -293,12 +304,12 @@ class TimePlotter:
 
     def plot_data(
         self,
-        absolutes_data,
-        label="",
-        linestyle=None,
-        smooth: float = None,
-        percentile=75,
-        max_mult=4,
+        absolutes_data: Any,
+        label: str = "",
+        linestyle: Optional[str] = None,
+        smooth: Optional[float] = None,
+        percentile: int = 75,
+        max_mult: float = 4,
     ) -> None:
         """
         Generates a time series plot of benchmark results, highlighting outliers and missing data.
@@ -384,7 +395,7 @@ class TimePlotter:
             handles=plt.gca().get_legend_handles_labels()[0] + custom_legend_elements
         )
 
-    def crono_plot(self, call_data, label=""):
+    def crono_plot(self, call_data: Any, label: str = "") -> None:
         series = []
         filter_no_change_val = None
         cluster = 5
@@ -422,7 +433,7 @@ class TimePlotter:
         plt.grid(True)
 
 
-def label_bar_heights(bar_container: BarContainer, axis) -> None:
+def label_bar_heights(bar_container: BarContainer, axis: Axes) -> None:
     """
     Adds labels to the bar chart indicating the height of each bar.
 
@@ -442,8 +453,12 @@ def label_bar_heights(bar_container: BarContainer, axis) -> None:
         )
 
 
-def summurize(working_list, percentile=75, filter_below=0):
-    series = defaultdict(dict)
+def summurize(
+    working_list: List[Dict[str, Any]],
+    percentile: int = 75,
+    filter_below: float = 0,
+) -> Tuple[Dict[str, Dict[str, float]], DefaultDict[str, Dict[int, float]]]:
+    series: DefaultDict[str, Dict[int, float]] = defaultdict(dict)
     for step_number, step_dict in enumerate(working_list):
         for step_name in step_dict.keys():
             if step_name in SPECIAL_NAMES:
